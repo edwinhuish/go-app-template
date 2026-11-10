@@ -120,7 +120,7 @@ tasks:
     # 发版仍是本地的一串动作（问版本号 -> 同步版本号 -> 提交、打 tag -> 问是否推送），
     # 逻辑在 scripts/release.sh：那里能按顺序校验工作区、远程与 tag 是否被占用。
     # 子项目若自己定义了 release 任务，会先跑它（见 scripts/task-entry.sh）。
-    desc: 打版本 tag 并发版（task release -- --version=1.2.3 --dry-run；也认 VERSION= / REMOTE= / PUSH= / DRY_RUN= 环境变量）
+    desc: 打版本 tag 并发版（task release -- 1.2.3 --dry-run；也认 VERSION= / REMOTE= / PUSH= / DRY_RUN= 环境变量）
     silent: true
     interactive: true
     env:

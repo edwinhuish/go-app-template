@@ -15,8 +15,8 @@
 # 认不认识、要不要用，由各端自己决定（不认识的忽略）。
 #
 # 根自己没有业务开关：7 个命令（install / build / clean / dev / fmt / lint / test）走的是
-# 同一段逻辑，没有命令专属的解析、没有串联步骤、也不区分执行模式。唯一的例外的 release，
-# 它有框架自己的取值开关（--version= / --remote= / --push= / --dry-run），见那个分支。
+# 同一段逻辑，没有命令专属的解析、没有串联步骤、也不区分执行模式。唯一的例外是 release，
+# 它有自己的取值（第一个裸词 = 版本号，另有 --remote= / --push= / --dry-run），见那个分支。
 #
 # 命名的两种形状（app 名进任务名，不进位置参数）：
 #   task backend:build                  # 单个端：includes 直达，参数零解析
@@ -123,13 +123,16 @@ run() {
   done
 }
 
-# release 是框架级的动作（没有 backend:release 这回事），它自己的取值开关一律写成
-# --key=value：值里带 . 和 -，写成位置参数就永远分不清是版本号还是别的什么。
-#   task release -- --version=1.2.3 --remote=origin --push=false --dry-run
-# 也与 CI 的环境变量通道并存（VERSION=1.2.3 task release）；两者都设时以命令行开关为准。
-# 不认识的参数原样转给子项目的 release 任务，与全局命令一致：不校验、不拦截。
+# release 是框架级的动作（没有 backend:release 这回事），它自己吃掉两类参数：
+#   1. 版本号：第一个裸词就是版本号（`task release -- 1.2.3`），也接受 --version=1.2.3；
+#   2. 其余取值：--remote=origin / --push=false / --dry-run，值里可能带 . 和 -，
+#      所以带值的写成 --key=value，不给位置参数留第二种解释。
+#   task release -- 1.2.3 --dry-run
+# 也与 CI 的环境变量通道并存（VERSION=1.2.3 task release）；两者都设时以命令行上的为准。
+# 认不出来的参数（含第二个及以后的裸词）原样转给子项目的 release 任务，与全局命令一致：
+# 不校验、不拦截。
 run_release() {
-  local arg
+  local arg bare_used=false
   local -a kept=()
   VERSION="${VERSION:-}"
   REMOTE="${REMOTE:-origin}"
@@ -144,15 +147,19 @@ run_release() {
       --push=*) PUSH="${arg#*=}" ;;
       --dry-run) DRY_RUN=true ;;
       --dry-run=*) DRY_RUN="${arg#*=}" ;;
-      *)
-        # 裸词几乎肯定是把版本号写成了位置参数：提示一句，但仍然原样转给子项目。
-        case "$arg" in
-          -*) ;;
-          *)
-            printf '· 提示：%s 会被原样转给子项目的 release 任务；框架取值请写 --version=… / --remote=… / --push=… / --dry-run\n' "$arg" >&2
-            ;;
-        esac
+      -*)
+        # 认不出的开关原样转给子项目，不猜它是什么。
         kept+=("$arg")
+        ;;
+      *)
+        # 裸词 = 版本号。只认第一个：release 只有一颗版本号，第二个裸词没有别的身份，
+        # 原样转给子项目。格式对错交给 release.sh 校验，那里会明确说「期望 1.2.3」。
+        if [ "$bare_used" = false ]; then
+          VERSION="$arg"
+          bare_used=true
+        else
+          kept+=("$arg")
+        fi
         ;;
     esac
   done

@@ -196,7 +196,7 @@ task backend:dev -- --db=pg --once        # 只起后端，换 PostgreSQL 跑一
 task frontend:lint                        # 只检查前端
 task test -- -run TestLogin               # 所有端的 test；只有后端有 test，参数照样到
 task backend:test -- -run TestLogin       # 只跑后端测试
-task release -- --version=1.2.3 --dry-run # 发版取值用 --key=value
+task release -- 1.2.3 --dry-run          # 发版：第一个裸词是版本号
 ```
 
 整条链路上没有任何一层改写参数：
@@ -208,8 +208,8 @@ task release -- --version=1.2.3 --dry-run # 发版取值用 --key=value
   再用 `task -d apps/<名字> <任务> -- <参数...>` 交给每个子项目。
 
 7 个业务命令在实现上没有区别：**同一个循环、同一份参数**，没有命令专属的解析、没有串联步骤、
-也不区分串行与并行。根自己唯一还解析的参数是 `release` 的取值
-（`--version=` / `--remote=` / `--push=` / `--dry-run`，见「发版」）。
+也不区分串行与并行。根自己唯一还解析的是 `release` 的取值（第一个裸词是版本号，另有
+`--remote=` / `--push=` / `--dry-run`，见「发版」）。
 
 `release` 是框架级的动作，没有 `backend:release` 这种入口；要跟着发某一端的东西，
 就在那一端的 `Taskfile.yml` 里定义 `release` 任务，全局 `task release` 会先跑它。
@@ -251,15 +251,16 @@ app-server 0.1.0
 
 ```bash
 task release                                  # 回车 = 当前版本 +1 patch，也可以敲 1.3.0
-task release -- --version=1.3.0               # 指定版本号，不再询问
-task release -- --version=1.3.0 --push=false  # 只做本地部分（提交 + tag）
+task release -- 1.3.0                         # 指定版本号，不再询问（第一个裸词就是版本号）
+task release -- 1.3.0 --push=false            # 只做本地部分（提交 + tag）
 task release -- --dry-run                     # 只打印将要发生什么
+task release -- --version=1.3.0               # 同一个版本号的显式写法，效果一样
 ```
 
-取值一律写成 `--key=value`：`--version=` / `--remote=` / `--push=` / `--dry-run`。
-版本号里带 `.`，写成位置参数就分不清是版本号还是子项目名，所以 `task release -- 1.3.0`
-不会生效（会提示你改用 `--version=`）。环境变量通道 `VERSION=1.3.0 REMOTE=origin
-PUSH=false DRY_RUN=true task release` 仍然可用，CI 走的就是它；两者都设时以命令行开关为准。
+版本号可以直接写在 `--` 之后（第一个裸词），也可以 `--version=1.3.0`；
+其余取值一律 `--key=value`：`--remote=origin`、`--push=false`、`--dry-run`。
+环境变量通道 `VERSION=1.3.0 REMOTE=origin PUSH=false DRY_RUN=true task release` 仍然可用，
+CI 走的就是它；两者都设时以命令行上的为准。
 
 ### 发布流水线
 
