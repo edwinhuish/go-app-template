@@ -37,10 +37,15 @@ task -d apps/backend tool:air # 一次性：装后端热重载工具 air（go in
 task dev                      # 并行起后端 :8080（air 热重载）与前端 :5173（Vite HMR）
 ```
 
-根目录只有 8 个统一命令，每个都会自动派发到 `apps/` 下所有子项目的同名任务
-（子项目没定义就跳过，新增一端不用改根目录）：`install` / `build` / `clean` / `dev` /
-`lint` / `fmt` / `release` / `test`。单个端的任务直接对那一端执行：`task -d apps/backend build`。
-需要传参数的放进 `--` 之后：`task install -- --ci`、`task lint -- --no-fmt`。
+根目录有两套入口，**靠任务名区分，不靠位置参数猜**：
+
+- **所有端**：`task install` / `build` / `clean` / `dev` / `lint` / `fmt` / `release` / `test`，
+  每个都派发到 `apps/` 下所有子项目的同名任务（子项目没定义就跳过）。
+- **单个端**：`task backend:build`、`task frontend:dev` —— 任务名里带子项目名，由根 Taskfile
+  的 `includes` 直接把任务和参数交给那一端的 `Taskfile.yml`，根目录不参与，参数零解析。
+
+需要传参数的放进 `--` 之后：`task install -- --ci`、`task backend:dev -- --db=pg --once`。
+参数原样交给子项目，根不校验内容（详见「命令与参数」）。
 
 打开 <http://localhost:5173>，开发环境默认账号 **admin / admin123**
 （来自 `apps/backend/configs/config.yaml` 的 `app.seed_admin_*`，上线前必须改）。
@@ -98,12 +103,12 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 │   ├── ci.yml                   提交即跑的检查（编译、vet、gofmt、单测、前端类型检查）
 │   └── release.yml              发版流水线（tag 触发：编译、打包、发 Release、推镜像）
 ├── scripts/
-│   ├── task-entry.sh            统一入口：把 8 个命令派发到 apps/ 下所有子项目
+│   ├── task-entry.sh            全局入口：把 8 个命令派发到 apps/ 下所有子项目
 │   ├── release.sh               本地发版：改版本号 → 提交 → 打 tag → 推送
 │   ├── release-version.sh       解析本次发布的版本号（流水线用）
 │   ├── release-previous-tag.sh  查找上一个版本标签（流水线用）
 │   └── release-notes.sh         生成 Release 正文（流水线用）
-├── Taskfile.yml                 命令总入口（只做转调，逻辑在 scripts/task-entry.sh）
+├── Taskfile.yml                 命令总入口：includes 给出 <子项目>:<命令>，8 个全局命令转调脚本
 └── VERSION                      版本号正本
 ```
 
@@ -120,11 +125,11 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 
 | 想跑的组合 | 执行 |
 |---|---|
-| SQLite + 内存（默认） | `task dev`，或只起后端 `task dev -- backend` |
-| PostgreSQL + Redis | `task dev -- backend --db=pg`（容器由这条命令自己拉起） |
-| MySQL + Redis | `task dev -- backend --db=mysql`（同上） |
-| 跑一次就退、不热重载 | `task dev -- backend --once` |
-| 停掉上面拉起的容器 | `task dev -- backend --down`（数据卷保留） |
+| SQLite + 内存（默认） | `task dev`，或只起后端 `task backend:dev` |
+| PostgreSQL + Redis | `task backend:dev -- --db=pg`（容器由这条命令自己拉起） |
+| MySQL + Redis | `task backend:dev -- --db=mysql`（同上） |
+| 跑一次就退、不热重载 | `task backend:dev -- --once` |
+| 停掉上面拉起的容器 | `task backend:dev -- --down`（数据卷保留） |
 
 容器属于**后端自己的开发环境**：编排文件在 `apps/backend/deployments/docker-compose.yml`，
 由后端 `dev` 的 `--db=pg` / `--db=mysql` 负责启动，根目录不再有统一的 `infra:up` / `infra:down`
@@ -143,47 +148,86 @@ task -d apps/backend run
 
 ## 命令
 
-根目录只有下面 8 个命令，每个都会遍历 `apps/` 下所有子项目、执行同名任务，
-**子项目没定义就跳过**：
+两套入口，按**任务名**区分。
+
+**单个端** —— 任务名 `<子项目>:<命令>`，由根 Taskfile 的 `includes` 直接交给那一端：
+
+| 命令 | 作用 |
+|---|---|
+| `task backend:build` | 只构建后端 |
+| `task backend:test -- -run TestLogin` | 只跑后端测试；位置参数也能传 |
+| `task backend:dev -- --db=pg --once` | 只起后端，开关直达后端 |
+| `task frontend:lint` | 只检查前端 |
+| `task backend:tool:air` | 后端自己的任务（`tool:air`）也能这样点 |
+
+`--` 之后的参数直接进那一端的任务：根目录不解析、不校验、不改写。
+
+**所有端** —— 8 个全局命令，派发给 `apps/` 下所有子项目的同名任务（**子项目没定义就跳过**）：
 
 | 命令 | 作用 | 参数 |
 |---|---|---|
 | `task install` | 装所有子项目依赖 | `--ci`：严格按锁文件（前端 `--frozen-lockfile`，锁文件与 `package.json` 不一致直接失败） |
-| `task build` | 构建所有子项目产物 | 无 |
-| `task clean` | 清理所有子项目构建产物 | 无 |
-| `task dev` | 并行启动所有子项目开发环境（Ctrl-C 一并退出） | 无 |
-| `task lint` | 先格式化、再检查所有子项目 | `--no-fmt`：只检查不格式化 |
-| `task fmt` | 格式化所有子项目代码 | 无 |
-| `task test` | 运行所有子项目测试 | 无 |
-| `task release` | 发版：先跑子项目的 `release`（若有），再问版本号 → 同步版本号 → 提交打 tag → 问是否推送 | 版本号走 `VERSION=` 等变量 |
+| `task build` | 构建所有子项目产物 | 原样转给各子项目 |
+| `task clean` | 清理所有子项目构建产物 | 原样转给各子项目 |
+| `task dev` | 并行启动所有子项目开发环境（Ctrl-C 一并退出） | 原样转给各子项目（`--db=pg` 这类只对后端有意义，前端自己忽略） |
+| `task lint` | 先格式化、再检查所有子项目 | `--no-fmt`：只检查不格式化；其余原样转给各子项目 |
+| `task fmt` | 格式化所有子项目代码 | 原样转给各子项目 |
+| `task test` | 运行所有子项目测试 | 原样转给各子项目 |
+| `task release` | 发版：先跑子项目的 `release`（若有），再问版本号 → 同步版本号 → 提交打 tag → 问是否推送 | `--version=` / `--remote=` / `--push=` / `--dry-run`，其余原样转给各子项目的 `release` |
 
 忘了有哪些命令就跑 `task help`（不带任何任务名也一样）。
 
-### 参数：先 app 名，再开关
+### 参数：`--` 之后原样往下传
 
-参数一律写在 `--` 之后（Task 自己的参数解析不接受裸 `--ci`）。解析规则只有两条：
+规则只有两条：
 
-1. **第一个不以 `--` 开头的参数是子项目名**，命令只在那一个子项目里执行；
-   名字写错会直接报错并列出可选值，不会退回「跑全部」。
-2. **以 `--` 开头的是命令自己的开关**，写在子项目名之后（没有子项目名时就是第一个参数）。
+1. **子项目名不进参数，它写在任务名里**（`task backend:build`）。于是裸词（`TestLogin`、
+   `1.2.3`、`dist`）只有一个身份：业务参数或根自己的取值，不存在「这到底是 app 还是值」。
+   代价是根 `Taskfile.yml` 的 `includes` 必须静态列出每个子项目（见下一节）。
+2. **`--` 之后的参数一个不改地转给子项目**：根不校验、不过滤、不重排、不猜含义，也不因为
+   「没见过这个开关」报错。它们可能就是给旁边那个子项目的——认不认识、要不要用，由各端自己
+   决定（不认识的一律忽略）。
 
 ```bash
-task install -- --ci                    # 所有子项目，严格按锁文件
-task install -- backend                 # 只装 apps/backend
-task install -- backend --ci            # 只装 apps/backend，严格模式
-task lint -- frontend --no-fmt          # 只检查前端，不格式化
-task dev -- backend                     # 只起后端（前台跑，Ctrl-C 退出）
+task install -- --ci                      # 所有端，严格按锁文件
+task install -- --ci --db=pg              # 所有端；前端不认识 --db=pg，忽略
+task backend:install -- --ci              # 只装后端，严格模式
+task backend:dev -- --db=pg --once        # 只起后端，换 PostgreSQL 跑一次
+task frontend:lint                        # 只检查前端
+task test -- -run TestLogin               # 所有端的 test；只有后端有 test，参数照样到
+task backend:test -- -run TestLogin       # 只跑后端测试
+task release -- --version=1.2.3 --dry-run # 发版取值用 --key=value
 ```
 
-点名了一个没有该任务的子项目会失败而不是跳过（`task test -- frontend` → 报错，前端没有 test）；
-默认的附加步骤不算：`task lint -- frontend` 里 frontend 没有 `fmt`，跳过格式化继续检查。
-`release` 是框架级的发版动作，不接受子项目名。
+整条链路上没有任何一层改写参数：
 
-单个端的任务也可以绕过统一入口直接对那一端执行，`task -d apps/backend -- --list` 可以看它有哪些：
-`task -d apps/backend dev -- --db=pg`（换库热重载）、`task -d apps/frontend build` 等。
+- 单端入口（`task backend:build`）由 Task 的 `includes` 把 `CLI_ARGS` 直接交给那一端，
+  根目录没有代码参与，参数连一次解析都没有；
+- 全局入口由根 Taskfile 把 `CLI_ARGS` 放进 `TASK_ARGS` 环境变量，`scripts/task-entry.sh`
+  用 `eval "set --"` 复原边界（含空格、含 `=`、以 `-` 开头、空串都不会被拆开或加引号），
+  再用 `task -d apps/<名字> <任务> -- <参数...>` 交给每个子项目。
 
-新增一个子项目时，只要在 `apps/<名字>/Taskfile.yml` 里定义同名任务，根命令会自动带上它，
-不需要改根目录任何文件。
+根自己的开关只有两类：`lint` 的 `--no-fmt`（只决定要不要先跑 `fmt` 那一步），
+`release` 的 `--version=` / `--remote=` / `--push=` / `--dry-run`（框架级取值，见「发版」）。
+
+`release` 是框架级的动作，没有 `backend:release` 这种入口；要跟着发某一端的东西，
+就在那一端的 `Taskfile.yml` 里定义 `release` 任务，全局 `task release` 会先跑它。
+
+### 新增一个子项目
+
+1. 建 `apps/<名字>/Taskfile.yml`，定义要参与统一的那些任务（`install` / `build` / `dev` /
+   `lint` / `clean` …），名字与现有两端保持一致。
+2. 在根 `Taskfile.yml` 的 `includes` 里加 4 行（Task 不支持通配符包含，必须静态登记）：
+
+   ```yaml
+   includes:
+     <名字>:
+       taskfile: ./apps/<名字>/Taskfile.yml
+       dir: ./apps/<名字>
+   ```
+
+3. 完成。全局命令（`task build`）第 1 步之后就会自动带上它；只有 `task <名字>:<命令>`
+   需要第 2 步，漏了那条入口就不存在（全局命令照常跑）。
 
 ## 发版
 
@@ -205,11 +249,16 @@ app-server 0.1.0
 | 4（兜底） | 代码里的 `"dev"` | 裸 `go build` / air 热重载不带 ldflags，一眼看出不是发布产物 |
 
 ```bash
-task release                      # 回车 = 当前版本 +1 patch，也可以敲 1.3.0
-task release VERSION=1.3.0        # 指定版本号，不再询问
-task release PUSH=false           # 只做本地部分（提交 + tag）
-task release DRY_RUN=true         # 只打印将要发生什么
+task release                                  # 回车 = 当前版本 +1 patch，也可以敲 1.3.0
+task release -- --version=1.3.0               # 指定版本号，不再询问
+task release -- --version=1.3.0 --push=false  # 只做本地部分（提交 + tag）
+task release -- --dry-run                     # 只打印将要发生什么
 ```
+
+取值一律写成 `--key=value`：`--version=` / `--remote=` / `--push=` / `--dry-run`。
+版本号里带 `.`，写成位置参数就分不清是版本号还是子项目名，所以 `task release -- 1.3.0`
+不会生效（会提示你改用 `--version=`）。环境变量通道 `VERSION=1.3.0 REMOTE=origin
+PUSH=false DRY_RUN=true task release` 仍然可用，CI 走的就是它；两者都设时以命令行开关为准。
 
 ### 发布流水线
 
@@ -253,8 +302,10 @@ scripts/release-notes.sh v1.3.0 v1.2.0         # 第二个参数留空 = 首次�
 | `scripts/release.sh` 的 `PKG_FILE` | 总框架 | 发版时同步前端 `package.json` 的 `version` |
 | 端口与接口契约 | 两端各自 | 前端 `vite.config.ts` 的代理目标 ↔ 后端监听端口；契约见 [`docs/contracts/api.md`](docs/contracts/api.md) |
 
-根目录不再有 `includes`：`scripts/task-entry.sh` 运行时遍历 `apps/*/Taskfile.y*ml`，
-所以换掉整个目录、或改名成 `apps/<新名字>`，只要里面还叫 `Taskfile.yml` 就自动接上。
+框架侧有两处接线：全局命令靠 `scripts/task-entry.sh` 运行时遍历 `apps/*/Taskfile.y*ml`
+（换掉目录内容不用改它）；单端命名空间靠根 `Taskfile.yml` 的 `includes`（换端或改目录名要
+同步那 4 行）。所以换掉整个工程、或改名成 `apps/<新名字>` 时，只要里面还叫 `Taskfile.yml`，
+全局命令立刻接上，`includes` 那一行跟着改一下即可。
 
 ### 替换前端
 
@@ -265,15 +316,17 @@ scripts/release-notes.sh v1.3.0 v1.2.0         # 第二个参数留空 = 首次�
    但要同步改 `scripts/release.sh` 的 `PKG_FILE`、以及两份 `AGENTS.md` 与本文的路径引用。
 3. 补 `apps/frontend/Taskfile.yml`，任务名对上统一入口（定义哪个就派发哪个，没定义就跳过）：
 
-   | 任务 | 根里由谁调用 |
-   |---|---|
-   | `install`（支持 `-- --ci` 开关） | `task install` / `task install -- --ci` |
-   | `dev` | `task dev` |
-   | `build` | `task build` |
-   | `lint` | `task lint` |
-   | `clean` | `task clean` |
-   | `fmt`（可选） | `task fmt` 与 `task lint` 的格式化步骤 |
-   | `test`（可选） | `task test` |
+  | 任务 | 根里由谁调用 |
+  |---|---|
+  | `install`（支持 `-- --ci` 开关） | `task install` / `task install -- --ci`，单端 `task frontend:install` |
+  | `dev` | `task dev` / `task frontend:dev` |
+  | `build` | `task build` / `task frontend:build` |
+  | `lint` | `task lint` / `task frontend:lint` |
+  | `clean` | `task clean` / `task frontend:clean` |
+  | `fmt`（可选） | `task fmt` 与 `task lint` 的格式化步骤 |
+  | `test`（可选） | `task test` |
+
+  目录名若换了，根 `Taskfile.yml` 的 `includes` 里 `frontend:` 那 4 行要跟着改。
 
 4. 调整下列配置（**只在新前端自己的目录里改**）：
 
@@ -305,13 +358,15 @@ Vite 的 proxy target，二选一，不要两边都改）。
 
    | 任务 | 根里由谁调用 |
    |---|---|
-   | `install`（支持 `-- --ci` 开关） | `task install` / `task install -- --ci` |
-   | `dev` | `task dev` |
-   | `build` | `task build` |
-   | `test` | `task test` |
-   | `lint` | `task lint` |
+   | `install`（支持 `-- --ci` 开关） | `task install` / `task install -- --ci`，单端 `task backend:install` |
+   | `dev` | `task dev` / `task backend:dev` |
+   | `build` | `task build` / `task backend:build` |
+   | `test` | `task test` / `task backend:test` |
+   | `lint` | `task lint` / `task backend:lint` |
    | `fmt` | `task fmt` 与 `task lint` 的格式化步骤 |
-   | `clean` | `task clean` |
+   | `clean` | `task clean` / `task backend:clean` |
+
+   目录名若换了，根 `Taskfile.yml` 的 `includes` 里 `backend:` 那 4 行要跟着改。
 
 4. 调整下列配置（只在新服务自己的目录里改）：
 
@@ -326,7 +381,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
    | 接口契约 | 响应体、错误码、分页、鉴权头 | 必须满足 [`docs/contracts/api.md`](docs/contracts/api.md)。新服务自带另一套形状就是契约变更：先改契约，再改前端 |
    | 版本号来源 | Taskfile 的 `APP_VERSION` | 框架约定根目录 `VERSION` 是正本，构建期用 `-X` 注入；独立使用（读不到 `VERSION`）时必须能退化成 `dev`，不能报错 |
 
-5. 生效：`task install` → `task dev -- backend --once`（单次启动，确认能连库、能起来）→
+5. 生效：`task install` → `task backend:dev -- --once`（单次启动，确认能连库、能起来）→
    `task test`、`task lint`、`task build` 全绿。
 
 **前端不需要改**，除非新后端换了端口或改了契约形状。

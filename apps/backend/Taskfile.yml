@@ -36,33 +36,30 @@ tasks:
 
   install:
     desc: 下载 Go 依赖并整理 go.mod（-- --ci：只按 go.mod / go.sum 下载，不改它们）
-    # 开关用 env 传进来，不直接插值进 shell：值原样到达脚本，不会被二次解析。
+    # 参数用 env 传进来，不直接插值进 shell：值原样到达脚本，不会被二次解析。
     env:
       ARGS: '{{.CLI_ARGS}}'
     cmds:
       # 命令级 silent：这一段是脚本，回显整段没有信息量，有用的输出由脚本自己给。
       - cmd: |
           set -euf
-          # Task 会把 CLI_ARGS 里的每个参数 shell-quote 一遍（含 = 的会被单引号包住），
-          # 先剥掉包裹引号再比较。
-          arg="${ARGS:-}"
-          arg="${arg#[\"\']}"
-          arg="${arg%[\"\']}"
-          case "$arg" in
-            '')
-              go mod download
-              go mod tidy
-              ;;
-            --ci)
-              # 严格模式只下载不 tidy：tidy 会改写 go.mod / go.sum，
-              # 在 CI / 发布流程里那等于悄悄改掉了锁文件。
-              go mod download
-              ;;
-            *)
-              printf '✗ install 只支持 --ci，收到：%s\n' "$arg" >&2
-              exit 1
-              ;;
-          esac
+          # 参数是根目录统一入口原样转进来的，里面可能带着旁边那个子项目的开关，
+          # 所以不认识的参数一律忽略，只挑出本端认的 --ci。
+          # Task 会把每个参数按 shell 规则加引号后拼成一串，eval 是为了复原参数边界：
+          # 含空格的参数不会被拆开，`--db=pg` 也不会带着引号进来。
+          eval "set -- ${ARGS:-}"
+          ci=false
+          for arg in "$@"; do
+            if [ "$arg" = "--ci" ]; then
+              ci=true
+            fi
+          done
+          go mod download
+          # 严格模式不多做一步 tidy：tidy 会改写 go.mod / go.sum，
+          # 在 CI / 发布流程里那等于悄悄改掉了锁文件。
+          if [ "$ci" = false ]; then
+            go mod tidy
+          fi
         silent: true
 
   build:
@@ -88,25 +85,22 @@ tasks:
           db=sqlite
           once=false
           down=false
-          # Task 会把每个参数 shell-quote 一遍（含 = 的 `--db=pg` 会被单引号包住），
-          # 先剥掉包裹引号再匹配。
-          for raw in ${ARGS:-}; do
-            arg="${raw#[\"\']}"
-            arg="${arg%[\"\']}"
+          # 参数是根目录统一入口原样转进来的：可能带着旁边那个子项目（例如前端）的开关，
+          # 所以不认识的参数一律忽略，只挑出本端认识的几个。eval 复原参数边界，
+          # 避免 `--db=pg` 带着 Task 加的引号、含空格的参数被拆成两段。
+          eval "set -- ${ARGS:-}"
+          for arg in "$@"; do
             case "$arg" in
               --db=pg | --db=postgres) db=pg ;;
               --db=mysql) db=mysql ;;
               --db=sqlite) db=sqlite ;;
               --db=*)
+                # 本端认的开关，值写错就别偷偷退回默认库：静默换库比报错更难查。
                 printf '✗ --db 只支持 pg / mysql，收到：%s\n' "$arg" >&2
                 exit 1
                 ;;
               --once) once=true ;;
               --down) down=true ;;
-              *)
-                printf '✗ dev 不认识参数：%s（可用：--db=pg|mysql、--once、--down）\n' "$arg" >&2
-                exit 1
-                ;;
             esac
           done
 

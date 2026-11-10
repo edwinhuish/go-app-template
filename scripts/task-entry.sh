@@ -1,37 +1,35 @@
 #!/usr/bin/env bash
 #
-# 根目录统一入口的实现：把一条命令派发到 apps/ 下所有子项目的同名任务。
+# 根目录「所有端」入口的实现：把一条命令派发到 apps/ 下每个子项目的同名任务。
 #
-# 为什么用脚本遍历而不是根 Taskfile 的 includes：
-# includes 要把每个子项目写死在根文件里，新增一端还得回来改一遍；它暴露的也是
-# backend:build / frontend:build 这种命名空间任务，而不是「一条命令跑所有端」。
-# 这里改成运行时扫 apps/*/Taskfile.y*ml：子项目定义了就执行，没定义就跳过，
-# 加一个新端不需要动根目录任何文件。
+# 「单个端」不走这里：`task backend:build` 由根 Taskfile 的 includes 直接把任务名和参数
+# 交给 apps/backend/Taskfile.yml，根目录没有任何代码参与，也就没有解析与改写。
+# 本脚本只负责**全量**派发（task build / task dev …）和框架级的 release。
 #
 # 用法：
-#   scripts/task-entry.sh <命令> [app 名] [开关]
+#   scripts/task-entry.sh <命令> [参数...]
 #
-# 参数规则（只有两条）：
-#   1. 不带 -- 前缀的第一个参数 = 子项目名，命令只在这个子项目里执行；
-#      不带则派发到 apps/ 下所有子项目（没定义该任务的跳过）。
-#        scripts/task-entry.sh install backend --ci   # 只装 apps/backend，严格模式
-#        scripts/task-entry.sh install --ci           # 所有子项目，严格模式
-#   2. 以 -- 开头的参数是命令自己的开关，必须写在 app 名之后（没有 app 名时就是第一个）。
+# 参数规则只有一条：一个不改地转给每个子项目的同名任务（内部就是
+# `task -d apps/<名字> <任务> -- <参数...>`）。根不校验、不过滤、不重排、不猜含义，
+# 也不因为「没见过这个开关」报错：这些参数可能是给旁边那个子项目的，
+# 认不认识、要不要用，由各端自己决定（不认识的忽略）。
 #
-# 命令与开关：
-#   install [--ci]     装依赖。--ci 会原样传给子项目的 install 任务（严格模式：前端按
-#                      锁文件安装、锁文件与 package.json 不一致时直接失败）
-#   lint [--no-fmt]    默认先 fmt 再 lint；--no-fmt 只检查不格式化
-#   dev                不带 app 名时并行起所有端、不接受开关；点名某个 app 时，开关原样
-#                      转给它的 dev（如 task dev -- backend --db=pg --once）
-#   build / clean / fmt / test
-#                      不接受开关；点名某个 app 时只跑它
-#   release            框架级的发版动作，不接受 app 名；先跑子项目的 release（若有），
-#                      再走本地发版流程
+# 根自己只有一个开关：lint 的 --no-fmt（只决定「要不要先跑 fmt 这一步」，摘掉它，
+# 其余参数照旧原样转给子项目）。release 的 --version= / --remote= / --push / --dry-run
+# 是框架自己的取值开关，见那个分支。
+#
+# 命名的两种形状（app 名进任务名，不进位置参数）：
+#   task backend:build                  # 单个端：includes 直达，参数零解析
+#   task build                          # 所有端：本脚本派发
+#
+# 命令：
+#   install / build / clean / dev / fmt / lint / test
+#     派发到各子项目的同名任务；dev 并行起所有端（Ctrl-C 一并退出）。
+#   release
+#     框架级的发版动作：先跑子项目的 release（若有），再走本地发版流程。
 #
 # 退出码：任一子项目失败即返回非 0（串行模式下后续子项目不再执行）。
-# 点名了一个没有该任务的子项目时直接失败，而不是像全局模式那样跳过 —— 名字都点出来了，
-# 静默跳过等于让人以为跑过了。
+# 全局模式下某个子项目没定义该任务就跳过，这是设计（新端可以只实现一部分命令）。
 
 set -uo pipefail
 
@@ -39,9 +37,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 APPS="$ROOT/apps"
-
-# 目标子项目：命令解析阶段若点名了某个 app 就写在这里，其余情况为空 = 全部子项目。
-APP=""
 
 die() {
   printf '✗ %s\n' "$1" >&2
@@ -59,36 +54,6 @@ projects() {
     [ -f "$f" ] || continue
     basename "$(dirname "$f")"
   done
-}
-
-# 命令要落到哪些子项目上：点名了就只跑那一个，否则全部。
-targets() {
-  if [ -n "$APP" ]; then
-    printf '%s\n' "$APP"
-  else
-    projects
-  fi
-}
-
-# 校验点名的 app：名字合法且 apps/<名字>/Taskfile.y*ml 真的存在。
-# 单独成函数是为了在调用点决定退出，而不是在 $(...) 子 shell 里 exit —— 那里退出
-# 只会结束子 shell，父脚本会带着空 APP 继续按「全部子项目」跑，等于静默忽略用户点名的对象。
-check_app() {
-  local name="$1" existing
-  case "$name" in
-    *[!A-Za-z0-9_-]*)
-      printf '✗ app 名不合法：%s（只允许字母、数字、- 和 _）\n' "$name" >&2
-      return 1
-      ;;
-  esac
-  if [ -f "$APPS/$name/Taskfile.yml" ] || [ -f "$APPS/$name/Taskfile.yaml" ]; then
-    return 0
-  fi
-  existing="$(projects | tr '\n' ' ')"
-  printf '✗ 没有 apps/%s 这个子项目；现有：%s\n' "$name" "${existing:-（apps/ 下没有任何子项目）}" >&2
-  printf '  app 名写在 `--` 之后的第一个位置：task <命令> -- %s\n' "$name" >&2
-  printf '  命令自己的开关以 -- 开头，例如 --ci / --no-fmt\n' >&2
-  return 1
 }
 
 # 取子项目的任务列表。Taskfile 本身有问题时直接失败——静默当成「没定义这个任务」
@@ -117,42 +82,28 @@ pick_task() {
 
 # ---- 执行 ----
 
-# 串行：一个失败就停，并说明停在哪一端。候选任务名按顺序取第一个存在的。
+# 串行：一个失败就停，并说明停在哪一端。
 #
-# --optional：候选任务都没定义时直接跳过（给「默认先 fmt」这种附加步骤用）。
-# 不点名的全局模式下本来就跳过；点名了某个 app 时，缺主任务是错误、缺附加步骤才跳过。
+# 用法：run_serial <任务名> [参数...]
+# 任务名之后的所有参数原样转给子项目的同名任务，不检查、不改写：
+# 它们可能是给旁边那个子项目的，能不能用由各端自己判断。
 #
-# `--` 之后是这个任务自己的开关，原样转给子项目任务（`task install -- backend --ci`）。
+# 某个子项目没定义这个任务就跳过：新端可以先只实现一部分命令，
+# 而"点到哪个端"由任务名（backend:build）决定，不由这里猜。
 run_serial() {
-  local optional=false
-  local -a candidates=() child_args=()
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --optional)
-        optional=true
-        shift
-        ;;
-      --)
-        shift
-        while [ $# -gt 0 ]; do
-          child_args+=("$1")
-          shift
-        done
-        ;;
-      *)
-        candidates+=("$1")
-        shift
-        ;;
-    esac
-  done
+  local task_name="${1:-}"
+  [ -n "$task_name" ] || die "内部错误：run_serial 缺少任务名"
+  [ $# -gt 0 ] && shift
 
   local proj list name rc
-  for proj in $(targets); do
+  for proj in $(projects); do
     list="$(project_tasks "$proj")" || return $?
-    if name="$(pick_task "$list" "${candidates[@]}")"; then
+    if name="$(pick_task "$list" "$task_name")"; then
       info "$proj: $name"
-      if [ "${#child_args[@]}" -gt 0 ]; then
-        task -d "$APPS/$proj" "$name" -- "${child_args[@]}"
+      # 有参数才加 `--`：Task 会把 `--` 之后的全部塞进子项目的 CLI_ARGS，
+      # 因此含空格、含 =、以 - 开头的参数都不会被它自己当成开关。
+      if [ $# -gt 0 ]; then
+        task -d "$APPS/$proj" "$name" -- "$@"
         rc=$?
       else
         task -d "$APPS/$proj" "$name"
@@ -162,23 +113,97 @@ run_serial() {
         printf '✗ apps/%s 的 %s 失败（后续子项目未执行）\n' "$proj" "$name" >&2
         return "$rc"
       fi
-    elif [ "$optional" = true ] || [ -z "$APP" ]; then
-      info "$proj: 未定义 ${candidates[0]}，跳过"
     else
-      printf '✗ apps/%s 没有定义 %s\n' "$proj" "${candidates[*]}" >&2
-      return 1
+      info "$proj: 未定义 $task_name，跳过"
     fi
   done
 }
 
+# lint 的编排：默认先 fmt 再 lint。--no-fmt 是根自己的开关，只决定跳过第一步，
+# 摘掉它之后其余参数照旧原样转给子项目（哪怕它其实不认识）。
+run_lint() {
+  local nofmt=false arg
+  for arg in "$@"; do
+    if [ "$arg" = "--no-fmt" ]; then
+      nofmt=true
+    fi
+  done
+
+  if [ "$nofmt" = true ]; then
+    local -a kept=()
+    for arg in "$@"; do
+      if [ "$arg" != "--no-fmt" ]; then
+        kept+=("$arg")
+      fi
+    done
+    # bash 3.2 在 set -u 下展开空数组会报 unbound，所以分成两支。
+    if [ "${#kept[@]}" -gt 0 ]; then
+      run_serial lint "${kept[@]}"
+    else
+      run_serial lint
+    fi
+    return $?
+  fi
+
+  # fmt 是附加步骤：没有 fmt 的端（例如前端）自动跳过，不当作错误。
+  run_serial fmt "$@" || return $?
+  run_serial lint "$@"
+}
+
+# release 是框架级的动作（没有 backend:release 这回事），它自己的取值开关一律写成
+# --key=value：值里带 . 和 -，写成位置参数就永远分不清是版本号还是别的什么。
+#   task release -- --version=1.2.3 --remote=origin --push=false --dry-run
+# 也与 CI 的环境变量通道并存（VERSION=1.2.3 task release）；两者都设时以命令行开关为准。
+# 不认识的参数原样转给子项目的 release 任务，与全局命令一致：不校验、不拦截。
+run_release() {
+  local arg
+  local -a kept=()
+  VERSION="${VERSION:-}"
+  REMOTE="${REMOTE:-origin}"
+  PUSH="${PUSH:-ask}"
+  DRY_RUN="${DRY_RUN:-false}"
+
+  for arg in "$@"; do
+    case "$arg" in
+      --version=*) VERSION="${arg#*=}" ;;
+      --remote=*) REMOTE="${arg#*=}" ;;
+      --push) PUSH=true ;;
+      --push=*) PUSH="${arg#*=}" ;;
+      --dry-run) DRY_RUN=true ;;
+      --dry-run=*) DRY_RUN="${arg#*=}" ;;
+      *)
+        # 裸词几乎肯定是把版本号写成了位置参数：提示一句，但仍然原样转给子项目。
+        case "$arg" in
+          -*) ;;
+          *)
+            printf '· 提示：%s 会被原样转给子项目的 release 任务；框架取值请写 --version=… / --remote=… / --push=… / --dry-run\n' "$arg" >&2
+            ;;
+        esac
+        kept+=("$arg")
+        ;;
+    esac
+  done
+
+  # release.sh 只认环境变量这一条通道（CI 也用它），所以在这里落成环境变量。
+  export VERSION REMOTE PUSH DRY_RUN
+
+  if [ "${#kept[@]}" -gt 0 ]; then
+    run_serial release "${kept[@]}" || return $?
+  else
+    run_serial release || return $?
+  fi
+  exec "$ROOT/scripts/release.sh"
+}
+
 # 并行：给 dev 用。任一端退出即收掉其余进程——dev 的各端是配套的，
 # 留一半在跑只会让人以为「还在开发中」。
+#
+# 用法：run_parallel <任务名> [参数...]，参数原样转给每个子项目的同名任务
+# （`--db=pg` 这类只对后端有意义的开关，前端收到后自己忽略，不该由根来拦）。
 run_parallel() {
-  # 点名了一个 app 就没有并行可言：直接前台跑，Ctrl-C / TTY 的语义和单端 dev 一致。
-  if [ -n "$APP" ]; then
-    run_serial "$@"
-    return
-  fi
+  local task_name="${1:-}"
+  [ -n "$task_name" ] || die "内部错误：run_parallel 缺少任务名"
+  [ $# -gt 0 ] && shift
 
   local -a pids=()
   local proj list name pid stopped rc=0
@@ -191,12 +216,16 @@ run_parallel() {
 
   for proj in $(projects); do
     list="$(project_tasks "$proj")" || return $?
-    if name="$(pick_task "$list" "$@")"; then
+    if name="$(pick_task "$list" "$task_name")"; then
       info "$proj: $name"
-      task -d "$APPS/$proj" "$name" &
+      if [ $# -gt 0 ]; then
+        task -d "$APPS/$proj" "$name" -- "$@" &
+      else
+        task -d "$APPS/$proj" "$name" &
+      fi
       pids+=("$!")
     else
-      info "$proj: 未定义 $1，跳过"
+      info "$proj: 未定义 $task_name，跳过"
     fi
   done
 
@@ -252,84 +281,44 @@ run_parallel() {
 # ---- 命令 ----
 
 COMMAND="${1:-}"
-[ -n "$COMMAND" ] || die "用法：scripts/task-entry.sh <install|build|clean|dev|lint|fmt|release|test> [app 名] [开关]"
+[ -n "$COMMAND" ] || die "用法：scripts/task-entry.sh <install|build|clean|dev|lint|fmt|release|test> [参数...]"
 shift
 
-# 根 Taskfile 用 "$TASK_ARGS" 把整串 CLI_ARGS 当成一个参数传进来
-# （`task install -- backend --ci` 到这里是 "backend --ci" 一段），本地调试时又是一段一段的。
-# 统一按空白重新切开：这里只认 app 名与 --xxx 开关，两者都不含空格，拆分不会产生歧义。
-#
-# 拆完还要剥掉包裹的引号：Task 会对 CLI_ARGS 里的每个参数做一遍 shell-quote，
-# 含 = 的参数会被单引号包住（`--db=pg` 到这一步是 `'--db=pg'`）。不剥的话，
-# 要么匹配不上开关，要么把带引号的怪字符串原样转给子项目再来一轮加引号。
-if [ $# -gt 0 ]; then
-  read -r -a _args <<<"$*"
-  set --
-  for _arg in "${_args[@]}"; do
-    _arg="${_arg#[\"\']}"
-    _arg="${_arg%[\"\']}"
-    set -- "$@" "$_arg"
-  done
-else
-  set --
+# 根 Taskfile 不再把参数拼成字符串当 argv 传进来，而是把 Task 的 CLI_ARGS 原样放进
+# TASK_ARGS 环境变量（见根 Taskfile 的 env）。Task 对每个参数按 shell 规则加引号后
+# 用空格拼成一串，所以 `eval "set --"` 是唯一无损的反向操作：
+#   - 含空格的参数（`-run 'Test Foo'`）不会被拆成两段
+#   - 含 = 或以 - 开头的参数不会被剥引号或误认成开关
+#   - 空串、含 * / ; / 引号的参数都不会被展开或改写
+# 直接运行本脚本（不经 Task）时 TASK_ARGS 为空，命令行参数本来就是分开的，直接用。
+if [ $# -eq 0 ] && [ -n "${TASK_ARGS:-}" ]; then
+  eval "set -- $TASK_ARGS"
 fi
 
-# 第一个参数不以 -- 开头 = 子项目名，命令只落到它身上（`task install -- backend [--ci]`）。
-if [ $# -gt 0 ]; then
-  case "$1" in
-    --*) ;;
-    *)
-      check_app "$1" || exit 1
-      APP="$1"
-      shift
-      ;;
-  esac
+# 直接运行时习惯上会写 `scripts/task-entry.sh build -- --ci`：同一个 `--` 在这里
+# 只是分隔符，不构成参数，剥掉一次（经 Task 进来时它早已被 Task 吃掉）。
+if [ "${1:-}" = "--" ]; then
+  shift
 fi
+
+# 这里**不再**从位置参数里认子项目名：点名某个端靠任务名（`task backend:build`），
+# 由根 Taskfile 的 includes 直接交给那一端。位置参数里的一切都是业务参数，原样往下传。
 
 case "$COMMAND" in
-  install)
-    [ $# -le 1 ] || die "install 最多一个开关（--ci），收到：$*"
-    case "${1:-}" in
-      '') run_serial install ;;
-      # --ci 原样转给子项目的 install：严格模式怎么实现由各端自己决定
-      # （前端是 --frozen-lockfile，后端是只下载不 tidy），根不替它们定义。
-      --ci) run_serial install -- --ci ;;
-      *) die "install 只支持 --ci，收到：$1" ;;
-    esac
+  install | build | clean | fmt | test)
+    # 参数不校验、不过滤：--ci、--db=pg、或者某个只有旁边那个子项目才认识的开关，
+    # 都原样转下去。要不要用、认不认识，由各端自己决定。
+    run_serial "$COMMAND" "$@"
     ;;
   lint)
-    [ $# -le 1 ] || die "lint 最多一个开关（--no-fmt），收到：$*"
-    case "${1:-}" in
-      '')
-        # fmt 是附加步骤：点名的 app 没有 fmt（例如前端）时跳过，不当作错误。
-        run_serial --optional fmt || exit $?
-        run_serial lint
-        ;;
-      --no-fmt) run_serial lint ;;
-      *) die "lint 只支持 --no-fmt，收到：$1" ;;
-    esac
-    ;;
-  build | clean | fmt | test)
-    [ $# -eq 0 ] || die "$COMMAND 不接受开关，收到：$1"
-    run_serial "$COMMAND"
+    run_lint "$@"
     ;;
   dev)
-    if [ -n "$APP" ]; then
-      # 点名了就只有一个端，"并行"退化成前台直跑；开关原样转给它的 dev
-      # （task dev -- backend --db=pg --once）。
-      run_parallel dev -- "$@"
-    else
-      # 全局模式没有统一的 dev 开关：--db=pg 这种只对后端有意义，转给前端就是错。
-      [ $# -eq 0 ] || die "dev 的开关要指名给哪个子项目，例如：task dev -- backend $1"
-      run_parallel dev
-    fi
+    # 每个端都收到同一份参数（前端收到 --db=pg 自己忽略），并行起、任一端退出即全收。
+    run_parallel dev "$@"
     ;;
   release)
-    [ -z "$APP" ] || die "release 是框架级的发版动作（改版本号、打 tag、推送），不接受 app 名；某一端要跟着发布，请在那一端定义 release 任务"
-    [ $# -eq 0 ] || die "release 不接受开关（版本号用 VERSION=... 传）"
-    # 子项目若自己定义了 release（例如要发布一个包），先让它跑完；再走框架的发版流程。
-    run_serial release || exit $?
-    exec "$ROOT/scripts/release.sh"
+    run_release "$@"
     ;;
   *)
     die "未知命令：$COMMAND（可用：install build clean dev lint fmt release test）"

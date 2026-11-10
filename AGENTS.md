@@ -49,8 +49,9 @@ apps/<端>   ──✗──>  apps 下的其他子项目
             ──✗──>  总框架的代码、模块、配置
 ```
 
-- **允许**：框架 → apps。根目录的 8 个统一命令由 `scripts/task-entry.sh` 派发到
-  `apps/*/Taskfile.yml` 的同名任务；`scripts/release.sh` 写 `apps/frontend/package.json`
+- **允许**：框架 → apps。根 `Taskfile.yml` 的 `includes` 把 `<子项目>:<命令>` 命名的任务
+  直接交给 `apps/<子项目>/Taskfile.yml`；根目录的 8 个全局命令由 `scripts/task-entry.sh`
+  派发到 `apps/*/Taskfile.yml` 的同名任务；`scripts/release.sh` 写 `apps/frontend/package.json`
   的版本号；框架的文档（本文件、`docs/`、`README.md`）链接到 `apps/` 内的文件。
 - **禁止**：apps → 框架，以及 apps A → apps B。跨端只能通过
   [`docs/contracts/api.md`](docs/contracts/api.md) 这条契约见面 —— HTTP 是边界，不是 import。
@@ -92,7 +93,7 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
 | `apps/backend/**` | `apps/backend/AGENTS.md` |
 | `apps/frontend/**` | `apps/frontend/AGENTS.md` |
 | `apps/backend/internal/dto`、`apps/backend/internal/pkg/errs`、`apps/backend/internal/pkg/response`、`apps/frontend/src/types`、`apps/frontend/src/api` | 上表对应的一份 **+** `docs/contracts/api.md` |
-| `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`scripts/`、`.github/workflows/` | `README.md` 的命令表与发版一节；改完四处（根 Taskfile、端 Taskfile、README、CI）对齐，并确认没引入 apps → 框架的依赖（第 3 节） |
+| `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`scripts/`、`.github/workflows/` | `README.md` 的命令表、参数规则与发版一节；改完四处（根 Taskfile 含 `includes`、端 Taskfile、README、CI）对齐，并确认没引入 apps → 框架的依赖（第 3 节） |
 | 整端替换（换掉 `apps/backend` 或 `apps/frontend`） | `README.md` 的「替换前端 / 替换后端」+ 第 3 节 + 那一端的 `AGENTS.md`（规范要改成新工程的形状） |
 | `docs/**` | 本文第 5 节的一致性规则 |
 

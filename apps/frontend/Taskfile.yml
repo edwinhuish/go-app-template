@@ -21,30 +21,34 @@ tasks:
 
   install:
     desc: 安装依赖（-- --ci：严格按 pnpm-lock.yaml 安装，锁文件与 package.json 不一致直接失败）
-    # 开关用 env 传进来，不直接插值进 shell：值原样到达脚本，不会被二次解析。
+    # 参数用 env 传进来，不直接插值进 shell：值原样到达脚本，不会被二次解析。
     env:
       ARGS: '{{.CLI_ARGS}}'
     cmds:
       # 命令级 silent：这一段是脚本，回显整段没有信息量，有用的输出由 pnpm 自己给。
       - cmd: |
           set -euf
-          # Task 会把 CLI_ARGS 里的每个参数 shell-quote 一遍（含 = 的会被单引号包住），
-          # 先剥掉包裹引号再比较。
-          arg="${ARGS:-}"
-          arg="${arg#[\"\']}"
-          arg="${arg%[\"\']}"
-          case "$arg" in
-            '') {{.PNPM}} install ;;
-            --ci) {{.PNPM}} install --frozen-lockfile ;;
-            *)
-              printf '✗ install 只支持 --ci，收到：%s\n' "$arg" >&2
-              exit 1
-              ;;
-          esac
+          # 参数是根目录统一入口原样转进来的，里面可能带着旁边那个子项目的开关，
+          # 所以不认识的参数一律忽略，只挑出本端认的 --ci。
+          # Task 会把每个参数按 shell 规则加引号后拼成一串，eval 是为了复原参数边界：
+          # 含空格的参数不会被拆开，`--db=pg` 也不会带着引号进来。
+          eval "set -- ${ARGS:-}"
+          ci=false
+          for arg in "$@"; do
+            if [ "$arg" = "--ci" ]; then
+              ci=true
+            fi
+          done
+          if [ "$ci" = true ]; then
+            {{.PNPM}} install --frozen-lockfile
+          else
+            {{.PNPM}} install
+          fi
         silent: true
 
   dev:
     desc: 启动 Vite 开发服务器（:5173，/api 代理到 :8080）
+    # 本端 dev 没有开关：根目录转进来的参数（比如后端的 --db=pg）直接忽略，不报错。
     cmds:
       - '{{.PNPM}} run dev'
 

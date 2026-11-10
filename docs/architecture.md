@@ -16,15 +16,17 @@
 ├── docs/
 │   ├── architecture.md    本文件：跨端全景
 │   └── contracts/api.md   接口协议与错误码正本（两端共用）
-├── scripts/               统一入口（task-entry.sh）与发版、发布流水线的脚本
-├── Taskfile.yml           命令总入口（只转调 scripts/task-entry.sh，不实现）
+├── scripts/               全局入口（task-entry.sh）与发版、发布流水线的脚本
+├── Taskfile.yml           命令总入口：includes 提供 <子项目>:<命令>，8 个全局命令转调脚本
 └── VERSION                版本号正本
 ```
 
-前后端各自有独立的 `Taskfile.yml`；根目录只有 8 个统一命令（`install` / `build` / `clean` /
-`dev` / `lint` / `fmt` / `release` / `test`），运行时遍历 `apps/*` 把同名任务派发下去，
-子项目没定义就跳过。本地一条 `task lint` 走的是与 CI 同一条链路（编译、vet、gofmt、单测、
-前端类型检查），不存在「CI 里另有一套命令」。
+前后端各自有独立的 `Taskfile.yml`；根目录有两套入口，按**任务名**区分：单端是
+`task backend:build` 这种命名空间任务（根 `Taskfile.yml` 的 `includes` 直接交给那一端，
+根目录不参与、参数零解析），全量是 8 个统一命令（`install` / `build` / `clean` / `dev` /
+`lint` / `fmt` / `release` / `test`），由 `scripts/task-entry.sh` 运行时遍历 `apps/*`
+把同名任务派发下去，子项目没定义就跳过。本地一条 `task lint` 走的是与 CI 同一条链路
+（编译、vet、gofmt、单测、前端类型检查），不存在「CI 里另有一套命令」。
 `apps/` 下每个子项目都是独立工程（可单独拷出、单独构建），依赖方向见下一节。
 
 ## 2. 依赖方向：只有「框架 → apps」这一向
@@ -42,7 +44,7 @@ apps/backend        apps/frontend
 
 | 方向 | 允许 | 例子 |
 |---|---|---|
-| 框架 → apps | 是 | 根目录统一命令经 `scripts/task-entry.sh` 调子项目的同名任务；`scripts/release.sh` 写 `apps/frontend/package.json` 版本号；文档链接到 `apps/` 内文件 |
+| 框架 → apps | 是 | 根 `Taskfile.yml` 的 `includes` 把 `<子项目>:<命令>` 交给那一端；全局命令经 `scripts/task-entry.sh` 调子项目的同名任务；`scripts/release.sh` 写 `apps/frontend/package.json` 版本号；文档链接到 `apps/` 内文件 |
 | apps → 框架 | 否 | 子项目 import 根目录实现；缺了根 `VERSION` / 根变量就构建失败 |
 | apps A → apps B | 否 | 前端 import 后端代码；后端读前端 `package.json`；共用一份「两边都能用」的源码目录 |
 

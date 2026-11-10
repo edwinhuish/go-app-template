@@ -1,23 +1,37 @@
 version: '3'
 
-# 根目录只做「统一入口」：下面 8 个命令，每个都会把同名任务派发到 apps/ 下所有子项目，
-# 子项目没定义就跳过。实现全在 scripts/task-entry.sh —— 根 Taskfile 只做转调，
-# 不在 YAML 里再写一遍流程。
+# 两套入口，靠**位置**分辨，不靠猜参数：
 #
-# 为什么不用 includes：include 要把每一端写死在根文件里（新增一端得回来改），
-# 暴露的也是 backend:build / frontend:build 这类命名空间任务。现在运行时遍历
-# apps/*/Taskfile.y*ml，加一个新端不需要动根目录任何文件。
+#   1. 单个端：task <子项目>:<命令> [-- 参数...]
+#        Task 原生 includes：任务名里带命名空间，参数直接进那一端的任务，
+#        根目录一行脚本都不参与，因此没有任何解析与改写。
+#          task backend:build
+#          task backend:dev -- --db=pg --once
+#          task backend:test -- -run TestLogin      # 位置参数也能传
 #
-# 参数写在 `--` 之后（Task 自己的参数解析不接受裸 --ci / --no-fmt），解析规则只有两条：
-#   第一个不以 -- 开头的参数 = 子项目名，只在那一个子项目里执行；以 -- 开头的是命令开关。
-#   task install -- --ci              # 所有子项目，严格按锁文件
-#   task install -- backend           # 只装 apps/backend
-#   task install -- backend --ci      # 子项目名 + 开关组合
-#   task lint  -- frontend --no-fmt   # 只检查前端，不格式化
-#   task dev   -- backend             # 只起后端（前台跑）
+#   2. 所有端：task <命令> [-- 参数...]
+#        根目录的 8 个统一命令，派发到 apps/ 下每个子项目的同名任务（没定义就跳过），
+#        参数原样转给每一个，根不校验、不过滤。
+#          task build
+#          task install -- --ci
+#          task lint -- --no-fmt
 #
-# 单个端的任务也可以直接对那一端执行（不看这里的参数规则）：
-#   task -d apps/backend dev -- --db=pg
+# 为什么 app 名不做成位置参数：`task release -- 1.2.3`、`task test -- TestLogin` 这类
+# 裸词的归属永远说不清（是 app？是版本号？是测试名？），而错判的后果是静默跑全部。
+# 把 app 放进**任务名**里，裸词就只剩下"业务参数"一种身份。
+#
+# includes 必须静态列出（Task 不支持通配符包含）：新增一个子项目 = 在这张表里加 4 行。
+includes:
+  backend:
+    taskfile: ./apps/backend/Taskfile.yml
+    dir: ./apps/backend
+  frontend:
+    taskfile: ./apps/frontend/Taskfile.yml
+    dir: ./apps/frontend
+
+# 全局命令的参数写在 `--` 之后（Task 自己的参数解析不接受裸 --ci / --no-fmt），
+# 由根 Taskfile 放进 TASK_ARGS 环境变量交给 scripts/task-entry.sh。
+# 不拼成字符串当 argv：那样含空格的参数会被拆开、含 = 的会被一层层加引号。
 #
 # 忘了有哪些命令：task help（不带任务名也一样，见下面 default 的说明）。
 
@@ -37,13 +51,17 @@ tasks:
     cmds:
       - task help
 
+  # 下面每个命令都只做一件事：把 CLI_ARGS 放进 TASK_ARGS 环境变量，再把命令名交给脚本。
+  # 参数不拼进 argv（含空格的参数会被拆开、含 = 的会被反复加引号），脚本里 eval 复原边界后
+  # 原样转给子项目。根不校验内容，认不认识由各端自己决定。
+
   install:
     desc: 装依赖（task install -- --ci：严格按锁文件，锁文件与 package.json 不一致直接失败）
     silent: true
     env:
       TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - 'scripts/task-entry.sh install "$TASK_ARGS"'
+      - 'scripts/task-entry.sh install'
 
   build:
     desc: 构建所有子项目的产物
@@ -51,7 +69,7 @@ tasks:
     env:
       TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - 'scripts/task-entry.sh build "$TASK_ARGS"'
+      - 'scripts/task-entry.sh build'
 
   clean:
     desc: 清理所有子项目的构建产物
@@ -59,7 +77,7 @@ tasks:
     env:
       TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - 'scripts/task-entry.sh clean "$TASK_ARGS"'
+      - 'scripts/task-entry.sh clean'
 
   dev:
     # interactive：几端的开发进程都要直连终端，否则 Ctrl-C 与热重载的输出都不对。
@@ -69,7 +87,7 @@ tasks:
     env:
       TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - 'scripts/task-entry.sh dev "$TASK_ARGS"'
+      - 'scripts/task-entry.sh dev'
 
   lint:
     desc: 格式化并检查所有子项目（task lint -- --no-fmt：只检查不格式化）
@@ -77,7 +95,7 @@ tasks:
     env:
       TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - 'scripts/task-entry.sh lint "$TASK_ARGS"'
+      - 'scripts/task-entry.sh lint'
 
   fmt:
     desc: 格式化所有子项目代码
@@ -85,7 +103,7 @@ tasks:
     env:
       TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - 'scripts/task-entry.sh fmt "$TASK_ARGS"'
+      - 'scripts/task-entry.sh fmt'
 
   test:
     desc: 运行所有子项目的测试
@@ -93,13 +111,13 @@ tasks:
     env:
       TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - 'scripts/task-entry.sh test "$TASK_ARGS"'
+      - 'scripts/task-entry.sh test'
 
   release:
     # 发版仍是本地的一串动作（问版本号 -> 同步版本号 -> 提交、打 tag -> 问是否推送），
     # 逻辑在 scripts/release.sh：那里能按顺序校验工作区、远程与 tag 是否被占用。
     # 子项目若自己定义了 release 任务，会先跑它（见 scripts/task-entry.sh）。
-    desc: 打版本 tag 并发版（会先问版本号；VERSION=1.2.3 REMOTE=origin PUSH=false DRY_RUN=true）
+    desc: 打版本 tag 并发版（task release -- --version=1.2.3 --dry-run；也认 VERSION= / REMOTE= / PUSH= / DRY_RUN= 环境变量）
     silent: true
     interactive: true
     env:
@@ -109,4 +127,4 @@ tasks:
       PUSH: '{{.PUSH | default "ask"}}'
       DRY_RUN: '{{.DRY_RUN | default "false"}}'
     cmds:
-      - 'scripts/task-entry.sh release "$TASK_ARGS"'
+      - 'scripts/task-entry.sh release'
