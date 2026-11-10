@@ -22,9 +22,36 @@
 ```
 
 前后端各自有独立的 `Taskfile.yml`，根只做编排；CI 与本地跑的是同一批 Task 任务，
-不存在「CI 里另有一套命令」。
+不存在「CI 里另有一套命令」。`apps/` 下每个子项目都是独立工程（可单独拷出、单独构建），
+依赖方向见下一节。
 
-## 2. 两端的边界
+## 2. 依赖方向：只有「框架 → apps」这一向
+
+`apps/` 下每个子项目都是**独立工程**，不是总框架的模块：
+
+```
+总框架（Taskfile.yml、scripts/、deployments/、docs/、VERSION、.gitignore）
+   │  允许：框架读取 / 调用 / 引用 apps
+   │  禁止：apps 反向读取框架的代码、模块、配置
+   ▼
+apps/backend        apps/frontend
+      └────✗───────┘  子项目之间也禁止互相引用
+```
+
+| 方向 | 允许 | 例子 |
+|---|---|---|
+| 框架 → apps | 是 | 根 `Taskfile.yml` 用 `includes` 调子项目 Taskfile；`scripts/release.sh` 写 `apps/frontend/package.json` 版本号；文档链接到 `apps/` 内文件 |
+| apps → 框架 | 否 | 子项目 import 根目录实现；缺了根 `VERSION` / 根变量就构建失败 |
+| apps A → apps B | 否 | 前端 import 后端代码；后端读前端 `package.json`；共用一份「两边都能用」的源码目录 |
+
+跨端唯一的合法通道是 HTTP + [`contracts/api.md`](contracts/api.md)。两条子项目的判据：
+
+- 把这个目录单独拷到别处，`install` 与 `build` 还能跑通（降级可以，报错不行）；
+- 子项目的源码、配置、Taskfile 里不出现 `../../`。
+
+细节与「已知软读取」登记表在 [`../AGENTS.md`](../AGENTS.md) 第 3 节，自检命令也在那里。
+
+## 3. 两端的边界
 
 | 边界 | 由谁定义 | 正本位置 |
 |---|---|---|
@@ -36,7 +63,7 @@
 跨越这条边界的改动只有一种：**契约变更**。它必须在同一个提交里闭合 ——
 先改契约文档，再改后端，同一个提交里改前端。流程见契约正本第 7 节。
 
-## 3. 一次请求的跨端链路
+## 4. 一次请求的跨端链路
 
 以新建一条笔记（`POST /api/v1/notes`）为例：
 
@@ -54,7 +81,7 @@
 错误只在两处翻译：后端 service 返回 `errs.*Error`，handler 交给 `response.Fail` 折叠成状态码；
 前端 `client.ts` 把非 0 的 `code` 折叠成异常。两端都不在业务代码里拼状态码、解析错误码。
 
-## 4. 分层
+## 5. 分层
 
 - **后端分层**（`handler → service → repository → model`，依赖单向）：
   落点表、硬性约束、存储与配置约定 = [`../apps/backend/AGENTS.md`](../apps/backend/AGENTS.md)。
@@ -62,8 +89,10 @@
   目录职责、取数与错误处理、组件与命名 = [`../apps/frontend/AGENTS.md`](../apps/frontend/AGENTS.md)。
 
 分层图与目录职责只写在各自的正本里，本文件不复述——复述就会漂移。
+某一端被整体替换（换成别的框架 / 别的工程）时，端级正本要跟着换成新工程的形状，
+步骤见 [`../README.md`](../README.md)「替换前端 / 替换后端」。
 
-## 5. 新增一个业务模块的跨端顺序
+## 6. 新增一个业务模块的跨端顺序
 
 这是**协作顺序**，不是编码规范；每一步的细则看对应端的正本。
 
@@ -77,12 +106,13 @@
 示例模块 `Note` 就是这条链路的样板（`apps/backend/internal/**/note*.go`、
 `apps/frontend/src/pages/notes`），替换或删除见 [`../README.md`](../README.md) 的占位替换清单。
 
-## 6. 文档地图
+## 7. 文档地图
 
 | 想知道 | 看 |
 |---|---|
 | 怎么跑起来、命令、占位替换 | [`../README.md`](../README.md) |
+| 怎么把前端 / 后端整端换成别的工程 | [`../README.md`](../README.md)「替换前端 / 替换后端」 |
 | 后端怎么改 | [`../apps/backend/AGENTS.md`](../apps/backend/AGENTS.md) |
 | 前端怎么改 | [`../apps/frontend/AGENTS.md`](../apps/frontend/AGENTS.md) |
 | 接口形状、错误码、分页、鉴权 | [`contracts/api.md`](contracts/api.md) |
-| 改哪端、读哪份、命名规则 | [`../AGENTS.md`](../AGENTS.md) |
+| 改哪端、读哪份、命名规则、自治边界 | [`../AGENTS.md`](../AGENTS.md) |

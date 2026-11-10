@@ -165,6 +165,102 @@ task release PUSH=false           # 只做本地部分（提交 + tag）
 task release DRY_RUN=true         # 只打印将要发生什么
 ```
 
+## 替换前端 / 替换后端
+
+`apps/` 下的每个子项目都是**独立工程**：它不 import 另一个子项目的代码，也不 import
+总框架的代码或配置。所以替换一端 = 换掉一个目录 + 改几处框架侧的接线，**另一端的代码零改动**。
+
+接线只有四处，先记住它们，后面每节都会回到这张表：
+
+| 接线点 | 谁来改 | 为什么 |
+|---|---|---|
+| 根 `Taskfile.yml` 的 `includes.<端> = {taskfile, dir}` | 总框架 | 根只做编排，按名字找到子项目的 Taskfile |
+| 子项目 `Taskfile.yml` 提供的**任务名** | 子项目 | 根按名调用（见各节清单），少一个根任务就断 |
+| `scripts/release.sh` 的 `PKG_FILE` | 总框架 | 发版时同步前端 `package.json` 的 `version` |
+| 端口与接口契约 | 两端各自 | 前端 `vite.config.ts` 的代理目标 ↔ 后端监听端口；契约见 [`docs/contracts/api.md`](docs/contracts/api.md) |
+
+### 替换前端
+
+**步骤**
+
+1. 移走旧工程：`git rm -r apps/frontend`（想留后路就先 `git mv apps/frontend apps/frontend.old`）。
+2. 把新前端工程**拷成 `apps/frontend`**（`cp -r` / `git clone` 到该路径）。目录名建议保持
+   `frontend`：换名要同步改根 `Taskfile.yml` 的 `includes.frontend`、`scripts/release.sh` 的
+   `PKG_FILE`、以及两份 `AGENTS.md` 与本文的路径引用。
+3. 补 `apps/frontend/Taskfile.yml`，提供这 6 个任务名（根只认这些名字）：
+
+   | 任务 | 根里由谁调用 |
+   |---|---|
+   | `install` / `install:ci` | `task install` / `task install:ci` |
+   | `dev` | `task dev` |
+   | `build` | `task build` |
+   | `typecheck` | `task lint` |
+   | `clean` | `task clean` |
+
+4. 调整下列配置（**只在新前端自己的目录里改**）：
+
+   | 配置项 | 位置 | 改什么 |
+   |---|---|---|
+   | 包名、包管理器、版本字段 | `package.json` 的 `name` / `packageManager` / `version` | 包名换成自己的；`version` 字段**必须保留**，`scripts/release.sh` 靠它同步发版号 |
+   | 脚本名 | `package.json` 的 `scripts` | 至少保证 `dev` / `build` / `typecheck` 三个脚本存在（Taskfile 转调它们） |
+   | 开发端口 | `vite.config.ts` 的 `server.port` | 默认 5173，本文与 CI 都引用它；改了就同步本文 |
+   | 接口代理 | `vite.config.ts` 的 `server.proxy['/api'].target` | 指向后端实际端口（默认 `http://127.0.0.1:8080`） |
+   | 接口前缀、令牌键、分页大小 | `src/constants` | 与 [`docs/contracts/api.md`](docs/contracts/api.md) 对齐；令牌键要带应用前缀，避免同域多应用互踩 |
+   | 路径别名 | `tsconfig.json` 的 `paths` + `vite.config.ts` 的 `resolve.alias` | 两处必须同时改：`tsc` 只读 `tsconfig`，`vite` 只读自己的 alias |
+
+5. 生效：`task install`（首次会生成锁文件，**把锁文件提交上去**）→ `task dev` 打开
+   <http://localhost:5173> → `task lint` 与 `task build` 通过。
+
+**后端不需要改**，除非新前端换了端口（那就改后端 `configs/config.yaml` 的监听端口，或改
+Vite 的 proxy target，二选一，不要两边都改）。
+
+### 替换后端
+
+**步骤**
+
+1. 移走旧服务：`git rm -r apps/backend`（或 `git mv` 到 `apps/backend.old`）。
+2. 把新服务拷成 `apps/backend`。换目录名要同步根 `Taskfile.yml` 的 `includes.backend`
+   （`taskfile` 与 `dir` 两个字段）、本文与 `docs/architecture.md` 里的路径引用，
+   以及 `.gitignore` 里按目录名匹配的 `data/`、`configs/config.local.yaml`（确认仍覆盖新路径）。
+3. 补 `apps/backend/Taskfile.yml`，提供这 7 个任务名：
+
+   | 任务 | 根里由谁调用 |
+   |---|---|
+   | `install` | `task install` / `task install:ci` |
+   | `dev` | `task dev` |
+   | `build` | `task build` |
+   | `test` | `task test` |
+   | `vet` | `task lint` |
+   | `fmt` | `task fmt` |
+   | `clean` | `task clean` |
+
+4. 调整下列配置（只在新服务自己的目录里改）：
+
+   | 配置项 | 位置 | 改什么 |
+   |---|---|---|
+   | 监听端口 | `configs/config*.yaml` | 与前端 `vite.config.ts` 的 proxy target 对上，默认 8080 |
+   | 环境变量前缀 | `internal/config`（或新框架的对应位置） | 换了前缀要同步本文「存储」一节的环境变量示例与 `apps/backend/AGENTS.md` 第 5 节 |
+   | 配置文件位置与文件名 | `configs/config.yaml` 等 | 本文、`.gitignore` 的 `configs/config.local.yaml`、Taskfile 的 `CONFIG_FILE` 都引用这个路径，换名要一起改 |
+   | 数据目录 | `data/` | 默认 SQLite 与缓存快照落在这里，`.gitignore` 已忽略同名的 `data/` |
+   | 二进制名 | Taskfile 的 `APP_NAME`、`Dockerfile` | 本文 `-version` 示例与 `docker build` 引用它 |
+   | 热重载配置 | `.air.toml` 与 Taskfile 的 `AIR_CONFIG` | `task dev` 走 `air -c .air.toml`；新工程不用 air 就改 `dev` 任务，别让根 `task dev` 直接挂掉 |
+   | 接口契约 | 响应体、错误码、分页、鉴权头 | 必须满足 [`docs/contracts/api.md`](docs/contracts/api.md)。新服务自带另一套形状就是契约变更：先改契约，再改前端 |
+   | 版本号来源 | Taskfile 的 `APP_VERSION` | 框架约定根目录 `VERSION` 是正本，构建期用 `-X` 注入；独立使用（读不到 `VERSION`）时必须能退化成 `dev`，不能报错 |
+
+5. 生效：`task install` → `task backend:dev:once`（单次启动，确认能连库、能起来）→
+   `task test`、`task lint`、`task build` 全绿。
+
+**前端不需要改**，除非新后端换了端口或改了契约形状。
+
+### 替换之后
+
+- **改那一端的规范**：`apps/backend/AGENTS.md` / `apps/frontend/AGENTS.md` 是那一端的规范正本，
+  旧的是 gin + gorm 分层、React + antd 约定；新工程换了框架，就把这份文件改成新工程的形状。
+  留着过时的正本比没有更糟——AI 会照着它改。
+- **保持契约单向**：新的一端只通过 `docs/contracts/api.md` 与另一端见面，不要为了省事让它
+  直接 import / 读取另一端的代码或配置。
+- **跑一遍仓库级自检**：`task fmt && task lint && task test && task build`。
+
 ## 占位内容替换清单
 
 模板里的名字都是占位，按下面这张表改一遍即可：

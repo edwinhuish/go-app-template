@@ -11,7 +11,7 @@
 | [`apps/frontend/AGENTS.md`](apps/frontend/AGENTS.md) | 前端目录与依赖方向、取数与错误处理、组件与命名、新增页面清单 | 改前端的人 |
 | [`docs/contracts/api.md`](docs/contracts/api.md) | 两端共用的接口协议：响应体、错误码、分页、鉴权头、字段与时序 | 契约变更的发起人 |
 | [`docs/architecture.md`](docs/architecture.md) | 跨端全景、目录树、一次请求从前端到后端的链路、文档地图 | 架构调整时 |
-| [`README.md`](README.md) | 怎么跑起来、命令表、占位内容替换清单 | 工程配置变更时 |
+| [`README.md`](README.md) | 怎么跑起来、命令表、占位替换清单、**替换整端（前端 / 后端）的步骤与配置项** | 工程配置变更时 |
 
 ## 2. 落点与命名规则
 
@@ -31,17 +31,60 @@
 - 端级 `AGENTS.md` 顶部固定放三条指针：另一端规范、契约正本、跨端全景。
   新增文档时先更新指针，再写内容。
 
-## 3. 该读哪份：按改动路径路由
+## 3. apps 子项目必须自治
+
+`apps/` 下每个子项目都是**能独立拥有生命周期**的工程：能单独拷出仓库、单独构建、单独部署。
+所以依赖方向只有一个：
+
+```
+总框架（根 Taskfile.yml、scripts/、deployments/、docs/、VERSION、.gitignore）
+   │  只允许这一向：框架读取 / 调用 / 引用 apps
+   ▼
+apps/<端>   ──✗──>  apps 下的其他子项目
+            ──✗──>  总框架的代码、模块、配置
+```
+
+- **允许**：框架 → apps。根 `Taskfile.yml` 用 `includes` 调用子项目的 Taskfile；
+  `scripts/release.sh` 写 `apps/frontend/package.json` 的版本号；文档链接到 `apps/` 内的文件。
+- **禁止**：apps → 框架，以及 apps A → apps B。跨端只能通过
+  [`docs/contracts/api.md`](docs/contracts/api.md) 这条契约见面 —— HTTP 是边界，不是 import。
+
+| 禁止 | 长什么样 |
+|---|---|
+| import 另一个子项目的代码 | 前端 `import '../backend/...'`、后端 import 前端导出的类型 |
+| 读另一个子项目的文件或配置 | 后端读 `../frontend/package.json`；前端读后端 `configs/*.yaml` |
+| 复用框架层的代码或模块 | 子项目 import 根目录 `scripts/` 里的实现来生成代码 |
+| 缺了框架就跑不起来 | 构建前必须先 `cd` 到仓库根；依赖根 `Taskfile.yml` 的变量才不报错 |
+| 相对路径逃出本目录 | 子项目的源码、配置、Taskfile 里出现 `../../` |
+
+唯一判据：**把这个目录单独拷到别处，`install` 与 `build` 必须还能跑通**（降级可以，报错不行）。
+
+已知的软读取（唯一登记处；新增一条必须同时满足「缺失即降级」并写进这张表）：
+
+| 位置 | 读什么 | 缺失时的行为 | 为什么允许 |
+|---|---|---|---|
+| `apps/backend/Taskfile.yml` | `../../VERSION` | 退化 `dev`，构建照常 | 版本号正本是仓库根的 `VERSION`；它只当缺省值，不参与编译逻辑 |
+
+自检（在仓库根执行，预期只命中上面登记的那一行）：
+
+```bash
+grep -rn '\.\./\.\.' apps/*/ --include='*.go' --include='*.ts' --include='*.tsx' --include='*.yml' --include='*.yaml' --include='*.json'
+```
+
+替换整端时这两条最容易破：见 [`README.md`](README.md) 的「替换前端 / 替换后端」。
+
+## 4. 该读哪份：按改动路径路由
 
 | 你改了 | 必读 |
 |---|---|
 | `apps/backend/**` | `apps/backend/AGENTS.md` |
 | `apps/frontend/**` | `apps/frontend/AGENTS.md` |
-| `internal/dto`、`internal/pkg/errs`、`internal/pkg/response`、`src/types`、`src/api` | 上表对应的一份 **+** `docs/contracts/api.md` |
-| `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`deployments/`、`scripts/` | `README.md` 的命令表；改完四处（根 Taskfile、端 Taskfile、README、CI）对齐 |
-| `docs/**` | 本文第 4 节的一致性规则 |
+| `apps/backend/internal/dto`、`apps/backend/internal/pkg/errs`、`apps/backend/internal/pkg/response`、`apps/frontend/src/types`、`apps/frontend/src/api` | 上表对应的一份 **+** `docs/contracts/api.md` |
+| `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`deployments/`、`scripts/` | `README.md` 的命令表；改完四处（根 Taskfile、端 Taskfile、README、CI）对齐，并确认没引入 apps → 框架的依赖（第 3 节） |
+| 整端替换（换掉 `apps/backend` 或 `apps/frontend`） | `README.md` 的「替换前端 / 替换后端」+ 第 3 节 + 那一端的 `AGENTS.md`（规范要改成新工程的形状） |
+| `docs/**` | 本文第 5 节的一致性规则 |
 
-## 4. 公共约定怎么保持一致
+## 5. 公共约定怎么保持一致
 
 公共约定指：接口前缀、响应体形状、错误码、分页参数、鉴权头、字段命名。
 
@@ -56,18 +99,21 @@
 5. **冲突时以契约为准**：端级规范与 `docs/contracts/api.md` 冲突，视为端级规范有 bug，
    当次改动顺手修掉那一句，而不是留一句「以契约为准」了事。
 
-## 5. 两端独立维护
+## 6. 两端独立维护
 
 - **归属清晰**：一端规范的改动只属于那一端的负责人，`docs/contracts/` 的改动需要两端任意
   一方发起、另一方确认（评审时看契约文档的 diff，不看实现 diff）。
 - **各自演进**：后端加一层、前端换组件库，只改自己那一份，不牵动另一端。
-  牵动另一端的一定是契约变更，走第 4 节流程。
+  牵动另一端的一定是契约变更，走第 5 节流程。
+- **可以整端换掉**：每一端都能被另一个同语言工程整体替换，换个目录 + 改几处接线即可，
+  步骤与配置项见 [`README.md`](README.md)「替换前端 / 替换后端」。替换时不允许顺手把
+  另一端或框架改造成彼此耦合 —— 那会直接违反第 3 节。
 - **各自自检**：后端 `task -d apps/backend test`、前端 `task -d apps/frontend typecheck`；
   根目录 `task fmt / lint / test / build` 只是编排入口，不新增命令。
 - **删示例别删规范**：`README.md` 的占位替换清单里删 `Note` 示例模块时，
   两份 `AGENTS.md` 里的示例引用只是「样板」，不必跟着删，除非该约定本身失效。
 
-## 6. 仓库级自检
+## 7. 仓库级自检
 
 ```bash
 task fmt        # gofmt
