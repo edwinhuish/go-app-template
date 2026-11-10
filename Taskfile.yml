@@ -8,13 +8,16 @@ version: '3'
 # 暴露的也是 backend:build / frontend:build 这类命名空间任务。现在运行时遍历
 # apps/*/Taskfile.y*ml，加一个新端不需要动根目录任何文件。
 #
-# 单个端的任务直接对那一端执行：
-#   task -d apps/backend build
-#   task -d apps/frontend dev
+# 参数写在 `--` 之后（Task 自己的参数解析不接受裸 --ci / --no-fmt），解析规则只有两条：
+#   第一个不以 -- 开头的参数 = 子项目名，只在那一个子项目里执行；以 -- 开头的是命令开关。
+#   task install -- --ci              # 所有子项目，严格按锁文件
+#   task install -- backend           # 只装 apps/backend
+#   task install -- backend --ci      # 子项目名 + 开关组合
+#   task lint  -- frontend --no-fmt   # 只检查前端，不格式化
+#   task dev   -- backend             # 只起后端（前台跑）
 #
-# 带参数的命令要放在 `--` 之后 —— Task 自己的参数解析不接受裸 --ci / --no-fmt：
-#   task install -- --ci      # 严格按锁文件安装，不一致直接失败
-#   task lint  -- --no-fmt    # 只检查，不格式化
+# 单个端的任务也可以直接对那一端执行（不看这里的参数规则）：
+#   task -d apps/backend dev:once
 #
 # 忘了有哪些命令：task help（不带任务名也一样，见下面 default 的说明）。
 

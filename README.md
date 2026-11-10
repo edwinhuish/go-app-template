@@ -158,14 +158,27 @@ task -d apps/backend run
 
 忘了有哪些命令就跑 `task help`（不带任何任务名也一样）。
 
-参数放在 `--` 之后 —— Task 自己的参数解析不接受裸 `--ci`：
+### 参数：先 app 名，再开关
+
+参数一律写在 `--` 之后（Task 自己的参数解析不接受裸 `--ci`）。解析规则只有两条：
+
+1. **第一个不以 `--` 开头的参数是子项目名**，命令只在那一个子项目里执行；
+   名字写错会直接报错并列出可选值，不会退回「跑全部」。
+2. **以 `--` 开头的是命令自己的开关**，写在子项目名之后（没有子项目名时就是第一个参数）。
 
 ```bash
-task install -- --ci
-task lint -- --no-fmt
+task install -- --ci                    # 所有子项目，严格按锁文件
+task install -- backend                 # 只装 apps/backend
+task install -- backend --ci            # 只装 apps/backend，严格模式
+task lint -- frontend --no-fmt          # 只检查前端，不格式化
+task dev -- backend                     # 只起后端（前台跑，Ctrl-C 退出）
 ```
 
-单个端的任务直接对那一端执行，`task -d apps/backend -- --list` 可以看它有哪些：
+点名了一个没有该任务的子项目会失败而不是跳过（`task test -- frontend` → 报错，前端没有 test）；
+默认的附加步骤不算：`task lint -- frontend` 里 frontend 没有 `fmt`，跳过格式化继续检查。
+`release` 是框架级的发版动作，不接受子项目名。
+
+单个端的任务也可以绕过统一入口直接对那一端执行，`task -d apps/backend -- --list` 可以看它有哪些：
 `task -d apps/backend dev:once`（单次启动）、`task -d apps/frontend build` 等。
 
 新增一个子项目时，只要在 `apps/<名字>/Taskfile.yml` 里定义同名任务，根命令会自动带上它，
