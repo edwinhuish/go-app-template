@@ -15,13 +15,24 @@ version: '3'
 # 带参数的命令要放在 `--` 之后 —— Task 自己的参数解析不接受裸 --ci / --no-fmt：
 #   task install -- --ci      # 严格按锁文件安装，不一致直接失败
 #   task lint  -- --no-fmt    # 只检查，不格式化
+#
+# 忘了有哪些命令：task help（不带任务名也一样，见下面 default 的说明）。
 
 tasks:
-  default:
-    desc: 列出统一入口的命令
+  help:
+    desc: 列出全部命令（等价于直接跑 task）
     silent: true
     cmds:
       - task --list
+
+  # 不带任务名时落到这里，等价于 `task help`。
+  # 刻意不写 desc：description 是 --list 的筛选条件，写了它就会在帮助里多占一行
+  # （`default` 是 Task 的内置名字，不该出现在对外暴露的命令清单里）。
+  # 用 cmds 转调而不是 `task: help`：后者在 silent 下会把输出一起吞掉。
+  default:
+    silent: true
+    cmds:
+      - task help
 
   install:
     desc: 装依赖（task install -- --ci：严格按锁文件，锁文件与 package.json 不一致直接失败）

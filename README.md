@@ -156,6 +156,8 @@ task -d apps/backend run
 | `task test` | 运行所有子项目测试 | 无 |
 | `task release` | 发版：先跑子项目的 `release`（若有），再问版本号 → 同步版本号 → 提交打 tag → 问是否推送 | 版本号走 `VERSION=` 等变量 |
 
+忘了有哪些命令就跑 `task help`（不带任何任务名也一样）。
+
 参数放在 `--` 之后 —— Task 自己的参数解析不接受裸 `--ci`：
 
 ```bash
