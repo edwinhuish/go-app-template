@@ -33,8 +33,8 @@ corepack enable pnpm        # 之后 pnpm 按 packageManager 自动取对应版�
 
 ```bash
 task install                  # 装依赖（后端 go mod + 前端 pnpm install，首次会生成 pnpm-lock.yaml）
-task -d apps/backend tool:air # 一次性：装后端热重载工具 air（go install，不进 go.mod）
-task dev                      # 并行起后端 :8080（air 热重载）与前端 :5173（Vite HMR）
+task backend:tool:air         # 一次性：装后端热重载工具 air（go install，不进 go.mod）
+task backend:dev              # 后端 :8080（air 热重载）—— 另开一个终端再跑 task frontend:dev
 ```
 
 根目录有两套入口，**靠任务名区分，不靠位置参数猜**：
@@ -169,8 +169,8 @@ task -d apps/backend run
 | `task install` | 装所有子项目依赖 | `--ci`：严格按锁文件（前端 `--frozen-lockfile`，锁文件与 `package.json` 不一致直接失败） |
 | `task build` | 构建所有子项目产物 | 原样转给各子项目 |
 | `task clean` | 清理所有子项目构建产物 | 原样转给各子项目 |
-| `task dev` | 并行启动所有子项目开发环境（Ctrl-C 一并退出） | 原样转给各子项目（`--db=pg` 这类只对后端有意义，前端自己忽略） |
-| `task lint` | 先格式化、再检查所有子项目 | `--no-fmt`：只检查不格式化；其余原样转给各子项目 |
+| `task dev` | 逐个启动子项目开发环境（第一个长驻端会占住终端，后面的端不会被执行；多端同时开发用 `task backend:dev` + `task frontend:dev`） | 原样转给各子项目（`--db=pg` 这类只对后端有意义，前端自己忽略） |
+| `task lint` | 检查所有子项目（格式化是 `task fmt`，不顺手做） | 原样转给各子项目 |
 | `task fmt` | 格式化所有子项目代码 | 原样转给各子项目 |
 | `task test` | 运行所有子项目测试 | 原样转给各子项目 |
 | `task release` | 发版：先跑子项目的 `release`（若有），再问版本号 → 同步版本号 → 提交打 tag → 问是否推送 | `--version=` / `--remote=` / `--push=` / `--dry-run`，其余原样转给各子项目的 `release` |
@@ -207,8 +207,9 @@ task release -- --version=1.2.3 --dry-run # 发版取值用 --key=value
   用 `eval "set --"` 复原边界（含空格、含 `=`、以 `-` 开头、空串都不会被拆开或加引号），
   再用 `task -d apps/<名字> <任务> -- <参数...>` 交给每个子项目。
 
-根自己的开关只有两类：`lint` 的 `--no-fmt`（只决定要不要先跑 `fmt` 那一步），
-`release` 的 `--version=` / `--remote=` / `--push=` / `--dry-run`（框架级取值，见「发版」）。
+7 个业务命令在实现上没有区别：**同一个循环、同一份参数**，没有命令专属的解析、没有串联步骤、
+也不区分串行与并行。根自己唯一还解析的参数是 `release` 的取值
+（`--version=` / `--remote=` / `--push=` / `--dry-run`，见「发版」）。
 
 `release` 是框架级的动作，没有 `backend:release` 这种入口；要跟着发某一端的东西，
 就在那一端的 `Taskfile.yml` 里定义 `release` 任务，全局 `task release` 会先跑它。

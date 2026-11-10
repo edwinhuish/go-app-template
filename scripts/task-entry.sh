@@ -14,9 +14,9 @@
 # 也不因为「没见过这个开关」报错：这些参数可能是给旁边那个子项目的，
 # 认不认识、要不要用，由各端自己决定（不认识的忽略）。
 #
-# 根自己只有一个开关：lint 的 --no-fmt（只决定「要不要先跑 fmt 这一步」，摘掉它，
-# 其余参数照旧原样转给子项目）。release 的 --version= / --remote= / --push / --dry-run
-# 是框架自己的取值开关，见那个分支。
+# 根自己没有业务开关：7 个命令（install / build / clean / dev / fmt / lint / test）走的是
+# 同一段逻辑，没有命令专属的解析、没有串联步骤、也不区分执行模式。唯一的例外的 release，
+# 它有框架自己的取值开关（--version= / --remote= / --push= / --dry-run），见那个分支。
 #
 # 命名的两种形状（app 名进任务名，不进位置参数）：
 #   task backend:build                  # 单个端：includes 直达，参数零解析
@@ -24,12 +24,12 @@
 #
 # 命令：
 #   install / build / clean / dev / fmt / lint / test
-#     派发到各子项目的同名任务；dev 并行起所有端（Ctrl-C 一并退出）。
+#     逐个跑各子项目的同名任务，参数原样转给每一个。
 #   release
 #     框架级的发版动作：先跑子项目的 release（若有），再走本地发版流程。
 #
-# 退出码：任一子项目失败即返回非 0（串行模式下后续子项目不再执行）。
-# 全局模式下某个子项目没定义该任务就跳过，这是设计（新端可以只实现一部分命令）。
+# 退出码：任一子项目失败即返回非 0（后续子项目不再执行）。
+# 某个子项目没定义该任务就跳过，这是设计（新端可以只实现一部分命令）。
 
 set -uo pipefail
 
@@ -82,17 +82,20 @@ pick_task() {
 
 # ---- 执行 ----
 
-# 串行：一个失败就停，并说明停在哪一端。
+# 唯一的派发逻辑：遍历 apps/ 下的子项目，跑同名任务，把同一份参数原样转给每一个。
 #
-# 用法：run_serial <任务名> [参数...]
+# 除 release 之外的 7 个命令在实现上没有任何区别：不区分执行模式、不认命令名的特殊含义、
+# 不做串联步骤。想只跑一端就点名（`task backend:build`），想要多端同时活着就各开一个终端
+# （`task backend:dev` / `task frontend:dev`）——这些都由任务名表达，不由脚本猜。
+#
+# 用法：run <任务名> [参数...]
 # 任务名之后的所有参数原样转给子项目的同名任务，不检查、不改写：
 # 它们可能是给旁边那个子项目的，能不能用由各端自己判断。
 #
-# 某个子项目没定义这个任务就跳过：新端可以先只实现一部分命令，
-# 而"点到哪个端"由任务名（backend:build）决定，不由这里猜。
-run_serial() {
+# 某个子项目没定义这个任务就跳过：新端可以先只实现一部分命令。
+run() {
   local task_name="${1:-}"
-  [ -n "$task_name" ] || die "内部错误：run_serial 缺少任务名"
+  [ -n "$task_name" ] || die "内部错误：run 缺少任务名"
   [ $# -gt 0 ] && shift
 
   local proj list name rc
@@ -102,6 +105,7 @@ run_serial() {
       info "$proj: $name"
       # 有参数才加 `--`：Task 会把 `--` 之后的全部塞进子项目的 CLI_ARGS，
       # 因此含空格、含 =、以 - 开头的参数都不会被它自己当成开关。
+      # 前台执行：一个端失败就停，并说明停在哪一端（后面的端不再跑）。
       if [ $# -gt 0 ]; then
         task -d "$APPS/$proj" "$name" -- "$@"
         rc=$?
@@ -117,37 +121,6 @@ run_serial() {
       info "$proj: 未定义 $task_name，跳过"
     fi
   done
-}
-
-# lint 的编排：默认先 fmt 再 lint。--no-fmt 是根自己的开关，只决定跳过第一步，
-# 摘掉它之后其余参数照旧原样转给子项目（哪怕它其实不认识）。
-run_lint() {
-  local nofmt=false arg
-  for arg in "$@"; do
-    if [ "$arg" = "--no-fmt" ]; then
-      nofmt=true
-    fi
-  done
-
-  if [ "$nofmt" = true ]; then
-    local -a kept=()
-    for arg in "$@"; do
-      if [ "$arg" != "--no-fmt" ]; then
-        kept+=("$arg")
-      fi
-    done
-    # bash 3.2 在 set -u 下展开空数组会报 unbound，所以分成两支。
-    if [ "${#kept[@]}" -gt 0 ]; then
-      run_serial lint "${kept[@]}"
-    else
-      run_serial lint
-    fi
-    return $?
-  fi
-
-  # fmt 是附加步骤：没有 fmt 的端（例如前端）自动跳过，不当作错误。
-  run_serial fmt "$@" || return $?
-  run_serial lint "$@"
 }
 
 # release 是框架级的动作（没有 backend:release 这回事），它自己的取值开关一律写成
@@ -188,94 +161,11 @@ run_release() {
   export VERSION REMOTE PUSH DRY_RUN
 
   if [ "${#kept[@]}" -gt 0 ]; then
-    run_serial release "${kept[@]}" || return $?
+    run release "${kept[@]}" || return $?
   else
-    run_serial release || return $?
+    run release || return $?
   fi
   exec "$ROOT/scripts/release.sh"
-}
-
-# 并行：给 dev 用。任一端退出即收掉其余进程——dev 的各端是配套的，
-# 留一半在跑只会让人以为「还在开发中」。
-#
-# 用法：run_parallel <任务名> [参数...]，参数原样转给每个子项目的同名任务
-# （`--db=pg` 这类只对后端有意义的开关，前端收到后自己忽略，不该由根来拦）。
-run_parallel() {
-  local task_name="${1:-}"
-  [ -n "$task_name" ] || die "内部错误：run_parallel 缺少任务名"
-  [ $# -gt 0 ] && shift
-
-  local -a pids=()
-  local proj list name pid stopped rc=0
-
-  # 打开 job control：每个后台子任务各自成为一个进程组（组长就是它自己的 pid），
-  # 于是回收时可以用 `kill -TERM -<pid>` 把它拉起的进程一并收掉。
-  # 注意这改变了 Ctrl-C 的投递范围：终端只送到本脚本这一组，子任务收不到，
-  # 所以下面的 trap 必须负责转发（见 stop_children 的注释）。
-  set -m
-
-  for proj in $(projects); do
-    list="$(project_tasks "$proj")" || return $?
-    if name="$(pick_task "$list" "$task_name")"; then
-      info "$proj: $name"
-      if [ $# -gt 0 ]; then
-        task -d "$APPS/$proj" "$name" -- "$@" &
-      else
-        task -d "$APPS/$proj" "$name" &
-      fi
-      pids+=("$!")
-    else
-      info "$proj: 未定义 $task_name，跳过"
-    fi
-  done
-
-  [ "${#pids[@]}" -gt 0 ] || return 0
-
-  # 只回收本脚本自己起的这几个进程；不按名字匹配，也不碰别人的进程。
-  # stopped 记录「被我们主动收掉的」，它们的退出码不算失败。
-  stopped=""
-  stop_children() {
-    local p running
-    running="$(jobs -rp)"
-    for p in "${pids[@]}"; do
-      if printf '%s\n' "$running" | grep -qx "$p"; then
-        stopped="$stopped $p"
-        # 连进程组一起收：只 kill 外层 task 进程的话，它拉起的进程（air、vite、
-        # 被启动的服务）会变成孤儿继续占着端口。
-        kill -TERM -"$p" 2>/dev/null || kill -TERM "$p" 2>/dev/null || true
-      fi
-    done
-  }
-  # 开了 job control 之后，终端 Ctrl-C 只送到本脚本这一组，子任务收不到，
-  # 所以这里必须显式转发一次，否则 Ctrl-C 只退脚本、开发进程留在后台。
-  trap 'stop_children; exit 130' INT TERM
-
-  # 轮询「还有几个在跑」用 jobs -r，不用 kill -0：已经退出但还没 wait 的进程是僵尸，
-  # kill -0 对它照样成功，会一直以为它还在跑（dev 就永远收不了尾）。
-  # 不用 wait -n：bash 3.2（macOS 自带）没有这个选项。
-  while [ -n "$(jobs -rp)" ]; do
-    # 有一端先退出了（编译失败、自己关掉…）：dev 的各端是配套的，留一半在跑只会
-    # 让人以为「还在开发中」，直接收掉其余进程。
-    if [ "$(jobs -rp | wc -l)" -lt "${#pids[@]}" ]; then
-      stop_children
-      break
-    fi
-    sleep 1
-  done
-
-  for pid in "${pids[@]}"; do
-    case " $stopped " in
-      *" $pid "*)
-        wait "$pid" 2>/dev/null || true
-        ;;
-      *)
-        if ! wait "$pid" 2>/dev/null; then
-          rc=1
-        fi
-        ;;
-    esac
-  done
-  return "$rc"
 }
 
 # ---- 命令 ----
@@ -305,17 +195,11 @@ fi
 # 由根 Taskfile 的 includes 直接交给那一端。位置参数里的一切都是业务参数，原样往下传。
 
 case "$COMMAND" in
-  install | build | clean | fmt | test)
+  install | build | clean | dev | fmt | lint | test)
+    # 7 个命令走同一段逻辑，没有分支：遍历 apps/、跑同名任务、参数原样转给每一个。
     # 参数不校验、不过滤：--ci、--db=pg、或者某个只有旁边那个子项目才认识的开关，
     # 都原样转下去。要不要用、认不认识，由各端自己决定。
-    run_serial "$COMMAND" "$@"
-    ;;
-  lint)
-    run_lint "$@"
-    ;;
-  dev)
-    # 每个端都收到同一份参数（前端收到 --db=pg 自己忽略），并行起、任一端退出即全收。
-    run_parallel dev "$@"
+    run "$COMMAND" "$@"
     ;;
   release)
     run_release "$@"

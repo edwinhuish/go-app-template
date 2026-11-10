@@ -25,8 +25,9 @@
 `task backend:build` 这种命名空间任务（根 `Taskfile.yml` 的 `includes` 直接交给那一端，
 根目录不参与、参数零解析），全量是 8 个统一命令（`install` / `build` / `clean` / `dev` /
 `lint` / `fmt` / `release` / `test`），由 `scripts/task-entry.sh` 运行时遍历 `apps/*`
-把同名任务派发下去，子项目没定义就跳过。本地一条 `task lint` 走的是与 CI 同一条链路
-（编译、vet、gofmt、单测、前端类型检查），不存在「CI 里另有一套命令」。
+把同名任务派发下去，子项目没定义就跳过。7 个业务命令共用同一个循环：不认命令的特殊含义、
+不做串联步骤、也不区分串行与并行。本地 `task build` / `task lint` / `task test` / `task fmt`
+与 CI 里的编译、vet、单测、gofmt、前端类型检查是同一条链路，不存在「CI 里另有一套命令」。
 `apps/` 下每个子项目都是独立工程（可单独拷出、单独构建），依赖方向见下一节。
 
 ## 2. 依赖方向：只有「框架 → apps」这一向

@@ -10,11 +10,12 @@ version: '3'
 #          task backend:test -- -run TestLogin      # 位置参数也能传
 #
 #   2. 所有端：task <命令> [-- 参数...]
-#        根目录的 8 个统一命令，派发到 apps/ 下每个子项目的同名任务（没定义就跳过），
-#        参数原样转给每一个，根不校验、不过滤。
+#        根目录的 8 个统一命令：逐个跑 apps/ 下每个子项目的同名任务（没定义就跳过），
+#        同一份参数原样转给每一个，根不校验、不过滤。7 个业务命令走的是同一段逻辑，
+#        没有按命令特判的分支。
 #          task build
 #          task install -- --ci
-#          task lint -- --no-fmt
+#          task test -- -run TestLogin
 #
 # 为什么 app 名不做成位置参数：`task release -- 1.2.3`、`task test -- TestLogin` 这类
 # 裸词的归属永远说不清（是 app？是版本号？是测试名？），而错判的后果是静默跑全部。
@@ -29,7 +30,7 @@ includes:
     taskfile: ./apps/frontend/Taskfile.yml
     dir: ./apps/frontend
 
-# 全局命令的参数写在 `--` 之后（Task 自己的参数解析不接受裸 --ci / --no-fmt），
+# 全局命令的参数写在 `--` 之后（Task 自己的参数解析不接受裸 --ci / --db=pg），
 # 由根 Taskfile 放进 TASK_ARGS 环境变量交给 scripts/task-entry.sh。
 # 不拼成字符串当 argv：那样含空格的参数会被拆开、含 = 的会被一层层加引号。
 #
@@ -80,8 +81,10 @@ tasks:
       - 'scripts/task-entry.sh clean'
 
   dev:
-    # interactive：几端的开发进程都要直连终端，否则 Ctrl-C 与热重载的输出都不对。
-    desc: 并行启动所有子项目的开发环境（Ctrl-C 一并退出）
+    # interactive：开发进程要直连终端，否则 Ctrl-C 与热重载的输出都不对。
+    # 逐个起：第一个端是长驻进程，它会一直占着终端，后面的端不会被执行。
+    # 多端同时开发请各开一个终端跑 `task backend:dev` / `task frontend:dev`。
+    desc: 逐个启动所有子项目的开发环境（第一个长驻端会占住终端；多端用 task <端>:dev）
     silent: true
     interactive: true
     env:
@@ -90,7 +93,7 @@ tasks:
       - 'scripts/task-entry.sh dev'
 
   lint:
-    desc: 格式化并检查所有子项目（task lint -- --no-fmt：只检查不格式化）
+    desc: 检查所有子项目（格式化是 task fmt，不在这里顺手做）
     silent: true
     env:
       TASK_ARGS: '{{.CLI_ARGS}}'
