@@ -89,7 +89,14 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 ├── docs/
 │   ├── architecture.md             跨端全景（不写单端规范）
 │   └── contracts/api.md            接口协议与错误码正本（两端共用）
-├── scripts/release.sh              发版流程
+├── .github/workflows/
+│   ├── ci.yml                      提交即跑的检查（编译、vet、gofmt、单测、前端类型检查）
+│   └── release.yml                 发版流水线（tag 触发：编译、打包、发 Release、推镜像）
+├── scripts/
+│   ├── release.sh                  本地发版：改版本号 → 提交 → 打 tag → 推送
+│   ├── release-version.sh          解析本次发布的版本号（流水线用）
+│   ├── release-previous-tag.sh     查找上一个版本标签（流水线用）
+│   └── release-notes.sh            生成 Release 正文（流水线用）
 ├── Taskfile.yml                    命令总入口
 └── VERSION                         版本号正本
 ```
@@ -165,6 +172,34 @@ task release                      # 回车 = 当前版本 +1 patch，也可以�
 task release VERSION=1.3.0        # 指定版本号，不再询问
 task release PUSH=false           # 只做本地部分（提交 + tag）
 task release DRY_RUN=true         # 只打印将要发生什么
+```
+
+### 发布流水线
+
+`task release` 只负责打到 tag 为止；**tag 推上去之后由
+[`.github/workflows/release.yml`](.github/workflows/release.yml) 接管**：
+
+| 触发 | 说明 |
+|---|---|
+| 推送 `v1.2.3` 或 `1.2.3` 形式的 tag | 走完整流程 |
+| Actions 里手动 Run workflow，填 `version` | 同上；留空 = 按仓库最新 tag 重发一次 |
+
+四组 job，逻辑都在 `scripts/` 下，工作流只按顺序调用：
+
+| job | 做什么 | 用到的脚本 |
+|---|---|---|
+| `build` | 交叉编译 5 个目标（windows x64、linux amd64/arm64、darwin amd64/arm64），版本号、提交、构建时间经 `-X` 注入；**不含 windows/386**，SQLite 驱动没有 386 实现，收了只会每次发版都红一次 | `release-version.sh` |
+| `frontend` | 按锁文件装依赖、打包前端静态产物 | — |
+| `release` | 汇总产物 + `checksums.txt`，按上一个标签生成变更日志，发 GitHub Release | `release-version.sh`、`release-previous-tag.sh`、`release-notes.sh` |
+| `docker` | 构建 `linux/amd64,linux/arm64` 镜像并推送到 GHCR（`ghcr.io/<owner>/<repo>`） | `release-version.sh` |
+
+三个脚本都能本地直接跑（不设 `GITHUB_OUTPUT` 时结果打到标准输出，提示信息走标准错误），
+排查流水线时不必推 tag：
+
+```bash
+scripts/release-version.sh --tag v1.3.0        # -> version=1.3.0 / tag=v1.3.0 / commit / build_time
+scripts/release-previous-tag.sh --minor v1.3.0 # -> previous_tag=v1.2.0（首次发版为空）
+scripts/release-notes.sh v1.3.0 v1.2.0         # 第二个参数留空 = 首次发版，写出 release-notes.md
 ```
 
 ## 替换前端 / 替换后端

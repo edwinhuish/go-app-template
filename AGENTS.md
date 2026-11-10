@@ -42,7 +42,7 @@
 所以依赖方向只有一个：
 
 ```
-总框架（根 Taskfile.yml、scripts/、deployments/、docs/、VERSION、.gitignore）
+总框架（根 Taskfile.yml、scripts/、.github/workflows/、deployments/、docs/、VERSION、.gitignore）
    │  只允许这一向：框架读取 / 调用 / 引用 apps
    ▼
 apps/<端>   ──✗──>  apps 下的其他子项目
@@ -92,7 +92,7 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
 | `apps/backend/**` | `apps/backend/AGENTS.md` |
 | `apps/frontend/**` | `apps/frontend/AGENTS.md` |
 | `apps/backend/internal/dto`、`apps/backend/internal/pkg/errs`、`apps/backend/internal/pkg/response`、`apps/frontend/src/types`、`apps/frontend/src/api` | 上表对应的一份 **+** `docs/contracts/api.md` |
-| `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`deployments/`、`scripts/` | `README.md` 的命令表；改完四处（根 Taskfile、端 Taskfile、README、CI）对齐，并确认没引入 apps → 框架的依赖（第 3 节） |
+| `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`deployments/`、`scripts/`、`.github/workflows/` | `README.md` 的命令表与发版一节；改完四处（根 Taskfile、端 Taskfile、README、CI）对齐，并确认没引入 apps → 框架的依赖（第 3 节） |
 | 整端替换（换掉 `apps/backend` 或 `apps/frontend`） | `README.md` 的「替换前端 / 替换后端」+ 第 3 节 + 那一端的 `AGENTS.md`（规范要改成新工程的形状） |
 | `docs/**` | 本文第 5 节的一致性规则 |
 

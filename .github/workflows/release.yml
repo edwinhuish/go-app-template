@@ -1,0 +1,291 @@
+# 发布流水线：打完版本 tag 之后的事全在这里。
+#
+# 与本地 `task release` 的分工：那条命令只负责改版本号、提交、打 tag、推送
+# （scripts/release.sh）；推上去之后由本工作流接管 —— 编译多平台产物、打包前端、
+# 生成变更日志、发 GitHub Release、推多架构镜像。
+#
+# 版本号解析只写一处（scripts/release-version.sh），三个 job 共用：
+# 同一条规则抄三遍必然漂移，一处忘了去掉 v 前缀，产物名就和 tag 对不上。
+#
+# 辅助脚本全部在 scripts/ 下，工作流只负责按顺序调用，不把逻辑写进 YAML。
+
+name: Release
+
+on:
+  push:
+    tags:
+      # 两种写法都收：task release 打的是 v1.2.3，外部工具可能直接打 1.2.3。
+      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号或 tag（如 v1.2.3）；留空 = 按仓库最新 tag 重发'
+        required: false
+        default: ''
+
+env:
+  # 与 apps/backend/Taskfile.yml 的 APP_NAME 保持一致：产物名、镜像里的二进制名都来自它。
+  APP_NAME: app-server
+  # 前端包名（apps/frontend/package.json 的 name），前端产物按它命名。
+  FRONTEND_NAME: app-frontend
+  # CGO_ENABLED=0：静态链接，产物能直接在 Alpine 等 musl 系统上跑。
+  CGO_ENABLED: '0'
+  # -s -w：去掉符号表与调试信息，体积小一半；版本号等由下面各 job 用 -X 注入。
+  LDFLAGS: '-s -w'
+
+# 默认只读；写权限按 job 单独给（release 需要 contents: write，docker 需要 packages: write）。
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      # 一个目标编不过不要掐掉其它目标：先看清是哪个平台的问题。
+      fail-fast: false
+      matrix:
+        # 目标平台是「本服务真的编得出、也真的有平台在跑」的交集：
+        # windows/386 编不过 —— SQLite 驱动（modernc.org/sqlite）没有 386 的实现，
+        # 放进矩阵只会让每次发版都红一次，所以不收。
+        include:
+          # Windows
+          - os: windows
+            arch: amd64
+            ext: '.exe'
+            suffix: x64
+          # Linux
+          - os: linux
+            arch: amd64
+            ext: ''
+            suffix: amd64
+          - os: linux
+            arch: arm64
+            ext: ''
+            suffix: arm64
+          # macOS
+          - os: darwin
+            arch: amd64
+            ext: ''
+            suffix: amd64
+          - os: darwin
+            arch: arm64
+            ext: ''
+            suffix: arm64
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          # 手动触发且没填版本时要回落到「最新 tag」，浅克隆里没有 tag，只能取全。
+          fetch-depth: 0
+
+      - name: 解析版本
+        id: version
+        run: scripts/release-version.sh
+
+      - name: 安装 Go
+        uses: actions/setup-go@v6
+        with:
+          # 版本跟 go.mod 的 go 指令走，不在 YAML 里另写一个数字。
+          go-version-file: apps/backend/go.mod
+          cache-dependency-path: apps/backend/go.sum
+
+      - name: 下载依赖
+        working-directory: apps/backend
+        run: go mod download
+
+      - name: 编译
+        working-directory: apps/backend
+        env:
+          TARGET_OS: ${{ matrix.os }}
+          TARGET_ARCH: ${{ matrix.arch }}
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ steps.version.outputs.commit }}
+          BUILD_TIME: ${{ steps.version.outputs.build_time }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          out="$GITHUB_WORKSPACE/dist/${APP_NAME}_${TARGET_OS}_${{ matrix.suffix }}${{ matrix.ext }}"
+          # 版本号走链接参数注入（与 apps/backend/Taskfile.yml 注的是同一批变量），
+          # 产物因此能在任何目录用 -version 自证，不依赖旁边的 VERSION 文件。
+          CGO_ENABLED="$CGO_ENABLED" GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
+            go build -trimpath \
+              -ldflags "$LDFLAGS -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$BUILD_TIME" \
+              -o "$out" ./cmd/server
+          echo "已生成：$out"
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.os }}-${{ matrix.arch }}-binary
+          path: dist/${{ env.APP_NAME }}_${{ matrix.os }}_${{ matrix.suffix }}${{ matrix.ext }}
+          retention-days: 7
+
+  frontend:
+    name: Build frontend bundle
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      # pnpm 版本从 package.json 的 packageManager 读，不在 YAML 里写死第二个数字。
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/frontend/package.json
+          cache: true
+          cache_dependency_path: apps/frontend/pnpm-lock.yaml
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装依赖（严格按锁文件）
+        working-directory: apps/frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: 构建
+        working-directory: apps/frontend
+        run: pnpm run build
+
+      - name: 打包静态产物
+        working-directory: apps/frontend
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          # 解压即用：压缩包里只有 dist/ 的内容，不带 apps/frontend 这一层路径。
+          tar -czf "$GITHUB_WORKSPACE/dist/${FRONTEND_NAME}-dist.tar.gz" -C dist .
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: dist/${{ env.FRONTEND_NAME }}-dist.tar.gz
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: [build, frontend]
+    runs-on: ubuntu-latest
+    # 只有 tag 推送或手动触发才发 Release；分支推送不该产生版本。
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          # 变更日志按 previous_tag..current_tag 取提交，浅克隆里既没历史也没 tag。
+          fetch-depth: 0
+
+      - name: 解析版本
+        id: version
+        run: scripts/release-version.sh
+
+      - name: 下载二进制产物
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: '*-binary'
+          merge-multiple: true
+
+      - name: 下载前端产物
+        uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: '*-dist'
+          merge-multiple: true
+
+      - name: 查看下载结果
+        run: ls -la dist/
+
+      - name: 生成校验和
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: 查找上一个版本
+        id: previous
+        run: scripts/release-previous-tag.sh --minor "${{ steps.version.outputs.tag }}"
+
+      - name: 生成变更日志
+        run: >-
+          scripts/release-notes.sh
+          "${{ steps.version.outputs.tag }}"
+          "${{ steps.previous.outputs.previous_tag }}"
+
+      - name: 创建并发布 GitHub Release
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          bodyFile: release-notes.md
+          artifacts: 'dist/*'
+          tag: ${{ steps.version.outputs.tag }}
+
+  docker:
+    name: Build and Push Docker Image (GHCR)
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 解析版本
+        id: version
+        run: scripts/release-version.sh
+
+      - name: 解析镜像名
+        id: image
+        run: |
+          # GHCR 要求镜像名全小写（仓库名可能含大写字母）。
+          echo "name=ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')" >>"$GITHUB_OUTPUT"
+
+      - name: 设置 QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: 设置 Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 登录 GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 生成镜像标签
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/') || github.event.inputs.version != '' }}
+
+      - name: 构建并推送多架构镜像
+        uses: docker/build-push-action@v6
+        with:
+          # 构建上下文是 apps/backend：Dockerfile 拷的是这一端的 go.mod 与 configs。
+          context: ./apps/backend
+          file: ./apps/backend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+            COMMIT=${{ steps.version.outputs.commit }}
+            BUILD_DATE=${{ steps.version.outputs.build_time }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

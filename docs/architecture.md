@@ -16,7 +16,7 @@
 ├── docs/
 │   ├── architecture.md    本文件：跨端全景
 │   └── contracts/api.md   接口协议与错误码正本（两端共用）
-├── scripts/               发版等本地脚本
+├── scripts/               发版与发布流水线的脚本
 ├── Taskfile.yml           命令总入口（只编排，不实现）
 └── VERSION                版本号正本
 ```
@@ -30,7 +30,7 @@
 `apps/` 下每个子项目都是**独立工程**，不是总框架的模块：
 
 ```
-总框架（Taskfile.yml、scripts/、deployments/、docs/、VERSION、.gitignore）
+总框架（Taskfile.yml、scripts/、.github/workflows/、deployments/、docs/、VERSION、.gitignore）
    │  允许：框架读取 / 调用 / 引用 apps
    │  禁止：apps 反向读取框架的代码、模块、配置
    ▼
