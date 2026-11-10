@@ -3,8 +3,14 @@
 Go 后端 + React 管理端的 monorepo 模板：分层清晰、零依赖即可启动、
 存储与缓存可配置切换，命令统一由 Taskfile 编排。
 
-**这份 README 讲怎么跑起来**；分层规则、目录职责与编码约定见
-[`docs/architecture.md`](docs/architecture.md)，AI 协作者的规则见 [`AGENTS.md`](AGENTS.md)。
+**这份 README 讲怎么跑起来**；编码规范按端分家，改哪端读哪份：
+
+| 你改的是 | 先读 |
+|---|---|
+| 后端 | [`apps/backend/AGENTS.md`](apps/backend/AGENTS.md) |
+| 前端 | [`apps/frontend/AGENTS.md`](apps/frontend/AGENTS.md) |
+| 接口字段 / 错误码（跨端） | [`docs/contracts/api.md`](docs/contracts/api.md) |
+| 想看全局 | [`docs/architecture.md`](docs/architecture.md) 与 [`AGENTS.md`](AGENTS.md) |
 
 > 仓库里带了一个示例模块 `Note`（`apps/backend/internal/**/note*.go` 与前端 `pages/notes`），
 > 它的唯一作用是让每条链路都有可运行的样板。接真实业务时按
@@ -57,6 +63,7 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 .
 ├── apps/
 │   ├── backend/                  Go 服务
+│   │   ├── AGENTS.md             后端规范正本（只此一份）
 │   │   ├── cmd/server/           入口：解析参数 → 装配 → 启停
 │   │   ├── configs/              分环境配置（默认 SQLite / postgres / mysql / prod）
 │   │   ├── internal/
@@ -74,14 +81,22 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 │   │   ├── Dockerfile            多阶段构建
 │   │   └── Taskfile.yml          后端任务
 │   └── frontend/                 React 管理端
+│       ├── AGENTS.md             前端规范正本（只此一份）
 │       ├── src/{api,components,config,constants,hooks,pages,providers,router,types,utils}
 │       └── Taskfile.yml          前端任务
 ├── deployments/docker-compose.yml  本地 PostgreSQL / MySQL / Redis
-├── docs/architecture.md            分层与约定
+├── AGENTS.md                       规范索引：改哪端读哪份 + 命名与维护规则
+├── docs/
+│   ├── architecture.md             跨端全景（不写单端规范）
+│   └── contracts/api.md            接口协议与错误码正本（两端共用）
 ├── scripts/release.sh              发版流程
 ├── Taskfile.yml                    命令总入口
 └── VERSION                         版本号正本
 ```
+
+规范按端存放：`apps/backend/AGENTS.md` 与 `apps/frontend/AGENTS.md` 各管一端，
+根目录的 [`AGENTS.md`](AGENTS.md) 只是索引；两端共用的接口协议只有
+[`docs/contracts/api.md`](docs/contracts/api.md) 一份，端级规范只引用、不复制。
 
 ## 存储：默认零依赖
 

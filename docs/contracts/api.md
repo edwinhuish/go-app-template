@@ -1,0 +1,118 @@
+# 接口契约（前后端公共约定）
+
+**这份文件是接口协议与错误码的唯一正本。** 后端与前端各自的规范文件都不重复抄写这里的
+形状与码表，只写「怎么实现」并链接回本文件。
+
+- 后端规范：[`../../apps/backend/AGENTS.md`](../../apps/backend/AGENTS.md)
+- 前端规范：[`../../apps/frontend/AGENTS.md`](../../apps/frontend/AGENTS.md)
+- 跨端全景与文档地图：[`../architecture.md`](../architecture.md)
+
+改契约的流程见文末「变更流程」。两份端级规范与本文件冲突时，**以本文件为准**，
+并视为文档 bug：当次改动顺手修正端级规范里的那一句。
+
+## 1. 传输层
+
+| 项 | 约定 |
+|---|---|
+| 前缀 | 所有业务接口挂在 `/api/v1` 下（路由组 `router.go`，前端 `constants/index.ts` 的 `API_BASE`） |
+| 方法 | 只用 `GET/POST/PUT/DELETE`，不做部分更新语义之外的自定义动词 |
+| 请求体 | `application/json`；唯一例外是 `FormData` 上传，由客户端跳过 `Content-Type` 注入 |
+| 鉴权头 | `Authorization: Bearer <token>`；无令牌 / 令牌失效一律 401 |
+| 请求 ID | `X-Request-ID`，前端可不传；后端必生成并写回响应头与响应体 |
+| 开发期代理 | Vite 把 `/api` 代理到 `127.0.0.1:8080`，前端代码里永远用相对路径 |
+
+## 2. 响应体
+
+所有接口（含错误）只有一种形状：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": { },
+  "request_id": "0f3c1a7e9b2d4c55"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `code` | 业务码，`0` 表示成功，非 `0` 见第 3 节 |
+| `message` | 给人看的文案，前端可直接展示；成功时是 `ok` / `created` |
+| `data` | 业务数据；失败时**省略**（`omitempty`），前端按 `code` 分支，不要读 `data` |
+| `request_id` | 与 `X-Request-ID` 一致，排查问题时让用户报这个值 |
+
+状态码与业务码同时存在，但**只由业务码推导**：成功 `200`（新建 `201`），失败取
+`code / 100` 的前三位。不要在 handler 里为某个错误单独挑状态码。
+
+## 3. 业务错误码
+
+| code | HTTP | 语义 | 典型场景 |
+|---|---|---|---|
+| `0` | 200 / 201 | 成功 | — |
+| `40001` | 400 | 参数错误 | 绑定失败、业务校验不通过、文案由 service 给出 |
+| `40101` | 401 | 未登录 / 登录态失效 | 缺令牌、令牌过期 |
+| `40301` | 403 | 无权限 | 已登录但角色不够 |
+| `40401` | 404 | 资源不存在 | 按 id 查不到（含已软删除） |
+| `40901` | 409 | 冲突 | 唯一约束、乐观锁命中 0 行、状态不允许流转 |
+| `50001` | 500 | 服务内部错误 | 非业务错误统一折叠成这个码，真实原因只进日志 |
+| `50401` | 504 | 超时 | ctx 截止时间到 |
+
+新增业务码的规则：
+
+- 前三位必须与期望的 HTTP 状态码一致（`40001 → 400`），否则 `errs.Code.HTTPStatus` 会把它归到 500；
+- 码值在 `errs` 包里集中定义，不允许在 handler / service 里写字面量数字；
+- 同一语义不要新增第二个码，前端的分支是按语义写的。
+
+## 4. 分页
+
+请求（`GET` query，`dto.PageQuery`）：
+
+| 参数 | 默认 | 上限 | 说明 |
+|---|---|---|---|
+| `page` | 1 | — | 从 1 开始，非法值归 1 |
+| `page_size` | 20 | 200 | 非法值归默认，超上限截断 |
+| `keyword` | 空 | — | 各资源自行解释是否使用 |
+
+响应（`dto.PageResult[T]`，前端 `types/index.ts` 的 `PageResult<T>`）：
+
+```json
+{ "list": [], "total": 0, "page": 1, "page_size": 20 }
+```
+
+`list` 永远是数组，空结果是 `[]` 而不是 `null` —— 前端不必判空。
+
+## 5. 字段与时间
+
+- **命名**：线上字段一律 `snake_case`，前端 `types` 与后端 `dto` 的 json tag 逐字段对应，
+  不允许前端另起更顺手的名字。
+- **时间**：一律 `time.Time`，序列化为 RFC3339（`2026-11-10T09:30:00Z`）；
+  「业务日期」用 `model.DateOnly` 截到日历日。唯一例外是令牌过期时间 `expires_at`，用 Unix 秒。
+- **标识**：主键 `id` 为数字；关联字段带实体名（`owner_id`），不用 `pid` 这类缩写。
+- **乐观锁**（可选约定）：更新接口回传读到的 `updated_at` 原值；不传则退化为最后写入者获胜。
+- **永不外泄**：密码、内部 DSN、堆栈不进任何响应体。
+
+## 6. 契约在代码里的锚点
+
+文档会漂移，代码不会。契约要素只有这几个实现点，改的时候对号入座：
+
+| 契约要素 | 后端 | 前端 |
+|---|---|---|
+| 响应体形状、状态码折叠 | `apps/backend/internal/pkg/response/response.go` | `apps/frontend/src/api/client.ts` |
+| 业务码表 | `apps/backend/internal/pkg/errs/errs.go` | `apps/frontend/src/api/client.ts`（`ApiError.code`） |
+| 分页参数与形状 | `apps/backend/internal/dto/common.go` | `src/types/index.ts` + `src/constants/index.ts` |
+| 接口前缀、令牌键 | `apps/backend/internal/server/router.go` | `src/constants/index.ts` |
+| 鉴权头 | `apps/backend/internal/server/middleware/auth.go` | `apps/frontend/src/api/client.ts` |
+
+## 7. 变更流程
+
+契约是两端共用的，所以它没有「谁先谁后」的自由：一次改动要在同一个提交里闭合。
+
+1. **先改本文档**：形状、码表、字段名先在这里定稿，评审时只看这一份。
+2. **再改后端**：`dto` / `errs` / `response`；`internal/dto` 或 `internal/pkg/errs` 的改动
+   一律视为契约变更，走本节流程。
+3. **同一个提交里改前端**：`src/types/index.ts` 与对应 `src/api/xxx.ts`。
+4. **自检**：`task lint`（`go vet` + 前端 `tsc`）。`types` 与 `dto` 对不上会在这里暴露，
+   别等联调才发现。
+5. **只在必要时扩展**：不要为「以后可能要用」预留字段，字段一旦上线就不能改名。
+
+不属于契约的改动（内部重构、SQL 优化、样式调整）不需要走这套流程，也不要顺手改本文档。

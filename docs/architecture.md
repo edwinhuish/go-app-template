@@ -1,7 +1,7 @@
-# 架构与约定
+# 架构与跨端约定
 
-这份文档回答「代码该放哪、依赖指向哪、改一处要连带改什么」。
-怎么跑起来见 [`../README.md`](../README.md)，给 AI 协作者看的规则见 [`../AGENTS.md`](../AGENTS.md)。
+这份文档回答「仓库怎么切、两端在哪交接、改一处要连带改什么」。
+**它不写任何一端的编码规范**——那些在各自的工程目录里，见下面的文档地图。
 
 ## 1. 全景
 
@@ -9,125 +9,80 @@
 .
 ├── apps/
 │   ├── backend/           Go 服务（gin + gorm）
+│   │   └── AGENTS.md      后端规范正本
 │   └── frontend/          React 管理端（Vite + TS + antd）
+│       └── AGENTS.md      前端规范正本
 ├── deployments/           本地基础设施（docker compose）
-├── docs/                  架构、术语、接口等长期文档
+├── docs/
+│   ├── architecture.md    本文件：跨端全景
+│   └── contracts/api.md   接口协议与错误码正本（两端共用）
 ├── scripts/               发版等本地脚本
 ├── Taskfile.yml           命令总入口（只编排，不实现）
 └── VERSION                版本号正本
 ```
 
-前后端各自有独立的 `Taskfile.yml`，根只做编排。
-CI 与本地跑的是同一批 Task 任务，不存在「CI 里另有一套命令」。
+前后端各自有独立的 `Taskfile.yml`，根只做编排；CI 与本地跑的是同一批 Task 任务，
+不存在「CI 里另有一套命令」。
 
-## 2. 后端分层
+## 2. 两端的边界
 
-依赖方向是单向的，箭头表示「可以 import」：
-
-```
-cmd/server ──> bootstrap ──> server ──> handler ──> service ──> repository ──> model
-                   │                                   │             │
-                   └──────────> infra/* <──────────────┘             │
-                                                       └──> pkg/* <──┘
-```
-
-| 目录 | 职责 | 不该出现的东西 |
+| 边界 | 由谁定义 | 正本位置 |
 |---|---|---|
-| `cmd/server` | 解析参数、装配、启停 HTTP 服务 | 任何业务逻辑 |
-| `internal/bootstrap` | 依赖装配（db、cache、repo、service、handler、router） | 业务判断 |
-| `internal/config` | 读配置、补默认值、环境变量覆盖、启动期校验 | 业务常量 |
-| `internal/server` | gin 引擎、路由表、中间件装配 | 具体 handler 实现 |
-| `internal/server/middleware` | 横切能力（请求 ID、日志、恢复、CORS、限流、鉴权） | 业务规则 |
-| `internal/handler` | 解析参数 → 调 service → 写响应 | 业务判断、SQL |
-| `internal/service` | 业务规则编排、事务边界选择、模型与契约互转 | gin、SQL、直接读写 HTTP |
-| `internal/repository` | 数据访问，返回 model；接口在这一层声明 | 业务规则、HTTP 概念 |
-| `internal/model` | 表结构（字段、索引、表名） | 业务方法之外的逻辑 |
-| `internal/dto` | 请求 / 响应 / 查询契约 | 对 `model` 的 import |
-| `internal/infra/*` | 具体技术实现：database、cache、logger | 业务概念 |
-| `internal/pkg/*` | 与被依赖方向无关的小工具：errs、response、dialect | 对 `internal` 其它包的依赖 |
+| 接口形状与错误码 | 后端实现、两端共同遵守 | [`contracts/api.md`](contracts/api.md) |
+| 字段命名 | 后端 `dto` 的 json tag，前端照抄 | `apps/backend/internal/dto` ↔ `apps/frontend/src/types` |
+| 开发期连通 | Vite 把 `/api` 代理到 `127.0.0.1:8080` | `apps/frontend/vite.config.ts` |
+| 部署期连通 | 网关按 `/api` 前缀转发 | `deployments/` |
 
-几条硬性约束：
+跨越这条边界的改动只有一种：**契约变更**。它必须在同一个提交里闭合 ——
+先改契约文档，再改后端，同一个提交里改前端。流程见契约正本第 7 节。
 
-- **`dto` 不 import `model`**：契约层与持久化层解耦，改表结构不连带改接口。
-  需要互转就在 service 里写 `toXxxItem`。
-- **`service` 不认识 gin**：要拿当前登录身份，用 `service.ActorFrom(ctx)`，
-  由中间件在 `Auth` 里写进 request context。
-- **`repository` 不返回 dto**：它只管把行变成 model，字段裁剪是 service 的事。
-- **`pkg` 不依赖 `internal` 其它包**：否则任何一次改动都会沿着依赖反向扩散。
+## 3. 一次请求的跨端链路
 
-## 3. 一次请求的流转
+以新建一条笔记（`POST /api/v1/notes`）为例：
 
-以 `POST /api/v1/notes` 为例：
+1. **前端**：页面调 `api/notes.ts` 的 `createNote` → `api/client.ts` 注入
+   `Authorization: Bearer` 与 `Content-Type` → `fetch('/api/v1/notes')`。
+2. **代理**：开发期 Vite 把 `/api` 转发到 `127.0.0.1:8080`；部署期由网关转发。
+3. **中间件**：`RequestID` 生成/透传 `X-Request-ID`，`Recovery` 兜 panic，`AccessLog`
+   记结构化日志，`BodyLimit` 给请求体设上限，`RequestTimeout` 给 ctx 加截止时间，
+   `Auth` 校验令牌并把 `Principal` 写进 context。
+4. **后端**：`handler` 绑定并校验 → `service` 做业务校验与事务选择 → `repository` 写库
+   （唯一约束冲突由 `infra/database` 的回调统一翻成 409）。
+5. **回程**：`response.Created` 写出 `{code,message,data,request_id}`。
+6. **前端**：`client.ts` 拆包；`code !== 0` 抛 `ApiError`；页面按 `err.message` / `err.code` 处理展示。
 
-1. `middleware.RequestID` 生成/透传 `X-Request-ID`，`Recovery` 兜 panic，
-   `AccessLog` 记一条结构化日志，`BodyLimit` 给请求体设上限，`RequestTimeout` 给 ctx 加截止时间。
-2. `middleware.Auth` 校验 Bearer 令牌 → 调 `AuthService.Verify` → 把 `Principal`
-   写进 gin.Context 与 request context。
-3. `handler.NoteHandler.Create`：`bindJSON` 绑定并校验 → 调 `service.NoteService.Create`。
-4. `service` 里做业务校验（重名预检、创建者归属）、组装 `model`、调仓储。
-5. `repository.Base.Create` 写库；唯一约束冲突由 `infra/database` 的回调统一翻成 409。
-6. handler 用 `response.Created` 写出 `{code,message,data,request_id}`。
+错误只在两处翻译：后端 service 返回 `errs.*Error`，handler 交给 `response.Fail` 折叠成状态码；
+前端 `client.ts` 把非 0 的 `code` 折叠成异常。两端都不在业务代码里拼状态码、解析错误码。
 
-错误只在两处翻译：service 返回 `errs.*Error`，handler 交给 `response.Fail` 折叠成状态码。
-不要在 handler 里自己拼状态码，也不要把 `err.Error()` 直接当文案返回。
+## 4. 分层
 
-## 4. 数据与存储约定
+- **后端分层**（`handler → service → repository → model`，依赖单向）：
+  落点表、硬性约束、存储与配置约定 = [`../apps/backend/AGENTS.md`](../apps/backend/AGENTS.md)。
+- **前端分层**（`pages → components/hooks/api → constants/types/utils`）：
+  目录职责、取数与错误处理、组件与命名 = [`../apps/frontend/AGENTS.md`](../apps/frontend/AGENTS.md)。
 
-| 主题 | 约定 |
+分层图与目录职责只写在各自的正本里，本文件不复述——复述就会漂移。
+
+## 5. 新增一个业务模块的跨端顺序
+
+这是**协作顺序**，不是编码规范；每一步的细则看对应端的正本。
+
+1. 后端 `model`：表结构与索引。
+2. 后端 `bootstrap/app.go`：`models` 清单里登记。
+3. 后端 `repository` → `dto` → `service` → `handler` → `router`。
+4. **契约对齐**：`dto` 定下的字段名同步到 `docs/contracts/api.md` 与前端 `types`。
+5. 前端 `types` → `api/` → `pages/` → `router/` → `config/nav.ts`。
+6. 测试：后端至少覆盖 service 的校验分支；前端靠 `tsc` 兜住类型，交互密集的页面再补测试。
+
+示例模块 `Note` 就是这条链路的样板（`apps/backend/internal/**/note*.go`、
+`apps/frontend/src/pages/notes`），替换或删除见 [`../README.md`](../README.md) 的占位替换清单。
+
+## 6. 文档地图
+
+| 想知道 | 看 |
 |---|---|
-| 主键 | `uint` 自增，`Base` 提供 |
-| 软删除 | `soft_delete` 的整数标记（0 = 未删），唯一索引把 `deleted_at` 排进去，实现「未删才唯一」 |
-| 表名 | 显式 `TableName()`；系统表 `sys_`、业务表 `biz_` |
-| 时间 | 一律 `time.Time`；「业务日期」用 `model.DateOnly` 截到日历日 |
-| 分页 | 列表查询统一 `repository.Pagination` + `dto.PageResult`，上限 200 |
-| 乐观锁 | 更新时把 `updated_at` 放进 fields（键为 `repository.FieldUpdatedAt`），命中 0 行则 409 |
-| 事务 | 跨仓储写入用 `repository.TxManager.Transaction`，仓储按 ctx 自动加入 |
-| 多库支持 | 上层永远拿 `*gorm.DB`；驱动差异只在 `infra/database` 与 `pkg/dialect` 里消化 |
-
-「换存储不改代码」是这个模板的承诺之一：
-`database.driver` 改成 `postgres` / `mysql` / `sqlite`，`cache.driver` 改成 `redis` / `memory`，
-业务层零改动。改完请至少跑一次 `task test`，再接真实库验证。
-
-## 5. 配置与密钥
-
-优先级：**配置文件 < 环境变量（`APP_` 前缀）**。
-
-- 配置文件按环境拆：`config.yaml`（默认 SQLite）、`config.postgres.yaml`、`config.mysql.yaml`、`config.prod.yaml`。
-- 密码、JWT 密钥、DSN 生产一律走环境变量，不进仓库。
-- 启动期就校验（`config.Validate`）：驱动名、必填项、生产环境的密钥长度与 seed 开关。
-  失败就退出，而不是等到第一个请求才 500。
-
-## 6. 前端分层
-
-```
-src/
-├── api/          接口封装：client.ts 统一注入令牌/拆包/抛 ApiError，其余按资源分文件
-├── components/   layout（外壳）、page（页面级公共块）、ui（无业务语义的小组件）
-├── config/       导航等静态配置
-├── constants/    常量（令牌键、分页大小）
-├── hooks/        可复用逻辑（useList）
-├── pages/        页面，一个目录一页
-├── providers/    全局状态（登录态）
-├── router/       路由表与守卫
-├── types/        与后端 dto 对应的类型
-└── utils/        纯函数（格式化、查询串）
-```
-
-约定：
-
-- **页面不直接 `fetch`**：一律走 `api/`，令牌注入与错误码处理只写一遍。
-- **`types` 与后端 `dto` 一一对应**：字段名保持一致，不要在前端另起一套更顺手的名字。
-- **加载态与错误态在页面里处理**：`useList` 只负责取数与重试，怎么展示由页面决定。
-- **登录守卫在路由层**（`RequireAuth`）：页面不写「没登录就跳转」的分支。
-
-## 7. 新增一个业务模块的顺序
-
-1. `model/`：定义表结构与索引（含 `deleted_at` 复合唯一）。
-2. `bootstrap/app.go` 的 `models` 清单里登记。
-3. `repository/`：接口 + 实现，只放该实体独有的查询。
-4. `dto/`：请求、响应、查询条件。
-5. `service/`：接口 + 构造函数 + Option；业务规则、事务、模型转契约。
-6. `handler/`：解析参数、调 service、写响应。
-7. `server/router.go`：挂路由（需要登录的挂进 `secured` 组）。
-8. 前端：`types/` → `api/` → `pages/` → `router/` → `config/nav.ts`。
-9. 测试：优先覆盖 service 的校验与状态流转；仓储的特殊查询再补集成测试。
+| 怎么跑起来、命令、占位替换 | [`../README.md`](../README.md) |
+| 后端怎么改 | [`../apps/backend/AGENTS.md`](../apps/backend/AGENTS.md) |
+| 前端怎么改 | [`../apps/frontend/AGENTS.md`](../apps/frontend/AGENTS.md) |
+| 接口形状、错误码、分页、鉴权 | [`contracts/api.md`](contracts/api.md) |
+| 改哪端、读哪份、命名规则 | [`../AGENTS.md`](../AGENTS.md) |
