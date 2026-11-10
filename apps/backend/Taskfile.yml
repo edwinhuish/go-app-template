@@ -28,8 +28,17 @@ vars:
     sh: date -u +%Y-%m-%dT%H:%M:%SZ
 
 tasks:
+  # 不带任务名时落到这里，等价于 `task help`。
+  # 刻意不写 desc：description 是 --list 的筛选条件，写了它就会在**仓库根**的命令清单里
+  # 多出 `backend:default` 与别名 `backend` 两行（`default` 是 Task 的内置名字，
+  # 不是这一端对外提供的命令）。
   default:
-    desc: 列出后端可用任务
+    silent: true
+    cmds:
+      - task help
+
+  help:
+    desc: 列出后端可用任务（等价于直接跑 task）
     silent: true
     cmds:
       - task --list

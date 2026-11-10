@@ -159,6 +159,7 @@ task -d apps/backend run
 | `task backend:dev -- --db=pg --once` | 只起后端，开关直达后端 |
 | `task frontend:lint` | 只检查前端 |
 | `task backend:tool:air` | 后端自己的任务（`tool:air`）也能这样点 |
+| `task backend:help` | 列出后端自己的任务（等价于 `cd apps/backend && task`） |
 
 `--` 之后的参数直接进那一端的任务：根目录不解析、不校验、不改写。
 
