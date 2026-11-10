@@ -1,0 +1,49 @@
+# MySQL + Redis 的本地联调配置。
+#
+# 前置：task infra:up 且 docker compose --profile mysql up -d
+# 启动：task backend:dev:mysql
+app:
+  name: app
+  env: dev
+  seed_admin_username: admin
+  seed_admin_password: admin123
+
+http:
+  addr: ":8080"
+  mode: debug
+  cors_origins:
+    - http://localhost:5173
+  shutdown_timeout: 10
+
+database:
+  driver: mysql
+  host: 127.0.0.1
+  port: 3306
+  user: app
+  password: app
+  name: app
+  max_open: 20
+  max_idle: 10
+  log_level: warn
+  auto_migrate: true
+  seed: true
+
+cache:
+  driver: redis
+  prefix: "app:"
+  fallback_to_memory: false
+  redis:
+    addr: "127.0.0.1:6379"
+    password: ""
+    db: 0
+    dial_timeout: 2
+  memory:
+    persist: false
+
+jwt:
+  secret: "dev-only-secret-change-me-0123456789abcdef"
+  expire: 24
+
+log:
+  level: info
+  format: text

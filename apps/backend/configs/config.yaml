@@ -1,0 +1,58 @@
+# 本地开发默认配置：SQLite + 内存缓存（落盘），零外部依赖即可启动。
+#
+# 想换外部服务不用改代码，只改这里（或对应 APP_* 环境变量）：
+#   换 MySQL -> database.driver: mysql，配置 host/user/password/name
+#   换 PgSQL -> database.driver: postgres，其余字段名完全一样
+#   换 Redis -> cache.driver: redis，配置 cache.redis.addr
+app:
+  # name 同时用作日志标识与默认缓存前缀。
+  name: app
+  env: dev
+  # 首次启动时创建的管理员账号；上线前务必改掉，生产环境请直接关掉 database.seed。
+  seed_admin_username: admin
+  seed_admin_password: admin123
+
+http:
+  addr: ":8080"
+  mode: debug
+  cors_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+  shutdown_timeout: 10
+
+database:
+  driver: sqlite
+  # sqlite 的 dsn 就是文件路径 + pragma；不写则默认 data/app.db。
+  # WAL 让读不阻塞写，busy_timeout 让并发写等锁而不是直接报错。
+  dsn: "file:./data/app.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+  max_open: 8
+  max_idle: 4
+  log_level: warn
+  auto_migrate: true
+  seed: true
+
+cache:
+  driver: memory
+  prefix: "app:"
+  # 仅 driver=redis 时生效：redis 连不上是否退回内存。生产应为 false。
+  fallback_to_memory: true
+  memory:
+    # 落盘，重启后登录态、限流计数不会突然清零。
+    persist: true
+    path: "data/cache.snapshot"
+    # 写操作只置脏标记，按这个间隔合并落盘；退出时还会再刷一次。
+    save_interval: 30
+  redis:
+    addr: ""
+    password: ""
+    db: 0
+    dial_timeout: 2
+
+jwt:
+  # 仅供本地开发；生产必须用 APP_JWT_SECRET 注入 32 位以上随机串。
+  secret: "dev-only-secret-change-me-0123456789abcdef"
+  expire: 24
+
+log:
+  level: info
+  format: text

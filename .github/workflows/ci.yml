@@ -1,0 +1,84 @@
+# CI：把「本地怎么装、CI 就怎么装」固定下来。
+#
+# 关键点：前端安装只认 pnpm-lock.yaml（--frozen-lockfile），
+# 锁文件和 package.json 对不上时 CI 直接红，而不是悄悄解析出新版本。
+#
+# 首次使用模板时仓库里还没有锁文件，先本地跑一次 task install 生成并提交它，
+# 否则 frontend 这一组会在安装步骤失败（这是有意的，不是配置问题）。
+
+name: CI
+
+on:
+  # 不按分支名过滤：主干改名（master -> main）时，写成 branches: [main] 会静默不触发。
+  push:
+  pull_request:
+
+# 同一分支连续提交时取消上一次运行，省 runner 也避免旧结果误导。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/backend/go.mod
+          cache-dependency-path: apps/backend/go.sum
+
+      - name: 下载依赖
+        run: go mod download
+
+      - name: 编译
+        run: go build ./...
+
+      - name: 静态检查
+        run: go vet ./...
+
+      # 格式漂移不影响构建，却会让编辑器每次打开都提示，久了就没人再看那条提示。
+      - name: 格式检查
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "以下文件未格式化，本地跑 gofmt -w 修掉："
+            echo "$out"
+            exit 1
+          fi
+
+      - name: 单元测试
+        run: go test ./... -count=1
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm 版本从 package.json 的 packageManager 读，
+      # 不在这里写死版本号，避免和本地 / corepack 各说一套。
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/frontend/package.json
+          cache: true
+          cache_dependency_path: apps/frontend/pnpm-lock.yaml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装依赖（严格按锁文件）
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm run typecheck
+
+      - name: 构建
+        run: pnpm run build

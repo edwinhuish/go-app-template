@@ -1,0 +1,75 @@
+# 本地基础设施：PostgreSQL + Redis（MySQL 用 profile 按需启动）
+#
+# 用法：
+#   docker compose up -d                 # postgres + redis
+#   docker compose --profile mysql up -d # 额外启动 mysql
+#   docker compose down                  # 停止并移除容器（数据卷保留）
+#
+# 开发默认不需要这些：config.yaml 走 SQLite + 内存缓存。
+# 这里起的服务是给「验证换库 / 换缓存」用的，配套：
+#   task backend:dev:pg    -> config.postgres.yaml
+#   task backend:dev:mysql -> config.mysql.yaml
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: app-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    ports:
+      - '5432:5432'
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U app -d app']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mysql:
+    image: mysql:8.4
+    container_name: app-mysql
+    restart: unless-stopped
+    profiles: ['mysql']
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: app
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+      TZ: Asia/Shanghai
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', '127.0.0.1', '-papp']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: app-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pg-data:
+  mysql-data:
+  redis-data:

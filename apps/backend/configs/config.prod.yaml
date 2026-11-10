@@ -1,0 +1,57 @@
+# 生产配置模板：PostgreSQL + Redis。
+#
+# 密码一律通过环境变量注入，不要写进仓库：
+#   APP_DB_PASSWORD、APP_REDIS_PASSWORD、APP_JWT_SECRET
+# 换 MySQL 只需把 driver 改成 mysql 并把 port 改成 3306，其余键名不变。
+app:
+  name: app
+  env: prod
+  # 生产不接受种子账号：开启 seed 会被 config.Validate 直接拒绝启动。
+  seed_admin_username: ""
+  seed_admin_password: ""
+
+http:
+  addr: ":8080"
+  mode: release
+  cors_origins:
+    - https://app.example.com
+  shutdown_timeout: 15
+
+database:
+  driver: postgres
+  host: postgres
+  port: 5432
+  user: app
+  password: ""
+  name: app
+  params:
+    sslmode: require
+    TimeZone: Asia/Shanghai
+  max_open: 100
+  max_idle: 20
+  max_lifetime: 3600
+  log_level: warn
+  # 生产建议改为显式迁移脚本，而不是启动时自动建表。
+  auto_migrate: false
+  seed: false
+
+cache:
+  driver: redis
+  prefix: "app:"
+  # 生产不允许静默降级：多实例部署下退回进程内缓存会造成数据不一致。
+  fallback_to_memory: false
+  redis:
+    addr: "redis:6379"
+    password: ""
+    db: 0
+    dial_timeout: 2
+  memory:
+    persist: false
+
+jwt:
+  secret: ""
+  expire: 12
+
+log:
+  level: info
+  format: json

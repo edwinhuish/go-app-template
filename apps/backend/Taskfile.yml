@@ -1,0 +1,111 @@
+version: '3'
+
+# 后端任务。根 Taskfile 通过 includes 调用这里，所以命令只在这里维护一份。
+#
+# 所有任务的工作目录都是 apps/backend（由根 Taskfile 的 dir 指定），
+# 因此 go.mod、.air.toml、configs/ 的路径都相对于本目录。
+
+vars:
+  BIN_DIR: bin
+  APP_NAME: app-server
+  CONFIG_FILE: configs/config.yaml
+  AIR_VERSION: v1.67.4
+  AIR_CONFIG: .air.toml
+  # 版本号正本是仓库根目录的 VERSION，构建期注入：
+  # 产物因此能在任何目录用 -version 自证。命令行 task backend:build APP_VERSION=1.2.3 可覆盖。
+  #
+  # 刻意不叫 VERSION：任务级变量会传到包含它的根 Taskfile 里，
+  # 而根目录的 release 任务要用 VERSION 接收用户输入的版本号，同名会被覆盖。
+  APP_VERSION:
+    sh: tr -d '[:space:]' < ../../VERSION 2>/dev/null || echo dev
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo none
+  BUILD_DATE:
+    sh: date -u +%Y-%m-%dT%H:%M:%SZ
+
+tasks:
+  default:
+    desc: 列出后端可用任务
+    silent: true
+    cmds:
+      - task --list
+
+  install:
+    desc: 下载 Go 依赖并整理 go.mod
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  tidy:
+    desc: 仅整理 go.mod / go.sum
+    cmds:
+      - go mod tidy
+
+  build:
+    desc: 编译到 bin/（版本号取根目录 VERSION，可用 APP_VERSION=1.2.3 覆盖）
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -trimpath -ldflags "-s -w -X main.version={{.APP_VERSION}} -X main.commit={{.COMMIT}} -X main.date={{.BUILD_DATE}}" -o {{.BIN_DIR}}/{{.APP_NAME}} ./cmd/server
+
+  dev:
+    desc: 热重载启动（air 监听 *.go 变更 → 重新编译 → 自动重启；SQLite + 内存缓存）
+    preconditions:
+      - sh: command -v air
+        msg: '未找到 air：先执行 task backend:tool:air（或 go install github.com/air-verse/air@{{.AIR_VERSION}}）'
+    cmds:
+      - mkdir -p data
+      - air -c {{.AIR_CONFIG}}
+
+  dev:once:
+    desc: 单次启动、不监听变更（改启动流程 / 没有 air 时用）
+    cmds:
+      - mkdir -p data
+      - go run ./cmd/server -config {{.CONFIG_FILE}}
+
+  dev:pg:
+    desc: 以 PostgreSQL + Redis 热重载启动，需先 task infra:up
+    preconditions:
+      - sh: command -v air
+        msg: '未找到 air：先执行 task backend:tool:air'
+    cmds:
+      # `--` 之后的参数由 air 追加给被启动的二进制。
+      - air -c {{.AIR_CONFIG}} -- -config configs/config.postgres.yaml
+
+  dev:mysql:
+    desc: 以 MySQL + Redis 热重载启动，需先 task infra:up 且启动 mysql profile
+    preconditions:
+      - sh: command -v air
+        msg: '未找到 air：先执行 task backend:tool:air'
+    cmds:
+      - air -c {{.AIR_CONFIG}} -- -config configs/config.mysql.yaml
+
+  tool:air:
+    desc: 安装 air（版本锁在 vars.AIR_VERSION；走 go install，不进 go.mod）
+    cmds:
+      - go install github.com/air-verse/air@{{.AIR_VERSION}}
+
+  run:
+    desc: 运行已编译的二进制
+    deps: [build]
+    cmds:
+      - ./{{.BIN_DIR}}/{{.APP_NAME}} -config {{.CONFIG_FILE}}
+
+  test:
+    desc: 运行单元测试
+    cmds:
+      - go test ./... -count=1
+
+  vet:
+    desc: 静态检查
+    cmds:
+      - go vet ./...
+
+  fmt:
+    desc: 格式化代码
+    cmds:
+      - gofmt -w .
+
+  clean:
+    desc: 清理编译产物
+    cmds:
+      - rm -rf {{.BIN_DIR}}

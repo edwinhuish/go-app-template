@@ -1,0 +1,36 @@
+# dependencies / build output
+bin/
+dist/
+node_modules/
+.vite/
+*.exe
+.pnpm-debug.log*
+
+# 只认 pnpm：锁文件是 pnpm-lock.yaml，其它包管理器的锁文件不该出现
+package-lock.json
+yarn.lock
+
+# local database files
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# memory 缓存落盘快照（含登录会话，不应入库）
+*.snapshot
+*.snapshot.corrupt
+
+# env & secrets
+.env
+.env.*
+!.env.example
+configs/config.local.yaml
+
+# logs
+logs/
+*.log
+
+# editor / os
+.DS_Store
+.idea/
+*.swp

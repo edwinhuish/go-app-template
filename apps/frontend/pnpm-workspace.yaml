@@ -1,0 +1,11 @@
+# pnpm 设置文件。
+#
+# pnpm 10 起项目级设置从 package.json 的 "pnpm" 字段搬到这里；
+# pnpm 11 起「允许依赖跑构建脚本」的写法由 onlyBuiltDependencies 改为 allowBuilds。
+# 没有 packages 列表 = 这个目录自己就是唯一的包，不需要工作区划分。
+
+# 依赖的构建脚本默认全部拒绝，只放行确实需要的一个：
+# esbuild 的 install 脚本负责二进制自检，放行后跨平台安装失败会当场报错，
+# 而不是拖到 vite build 才炸。
+allowBuilds:
+  esbuild: true

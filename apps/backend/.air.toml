@@ -1,0 +1,46 @@
+# air 热重载配置（github.com/air-verse/air）。
+#
+# 位置必须与 go.mod 同级：air 只从「当前工作目录」读 .air.toml，
+# 而所有后端命令都以 apps/backend 为工作目录。
+
+root = "."
+# 编译产物与 air 自己的 build-errors.log 都落在 bin/dev/，bin/ 已在 .gitignore 里。
+tmp_dir = "bin/dev"
+
+[build]
+  # 只走普通 build：-s -w 是发布参数，热重载每次裁剪符号只会拖慢重启，
+  # 调试信息也不该被剥掉。
+  cmd = "go build -o ./bin/dev/app-server ./cmd/server"
+  # 产物路径与启动入口分开写：entrypoint 是「怎么跑」，bin 是「产物在哪」。
+  bin = "./bin/dev/app-server"
+  entrypoint = ["./bin/dev/app-server"]
+
+  # 保存多个文件时把连续事件合并成一次编译。
+  delay = 300
+  # 编译失败就停掉旧进程，而不是继续拿旧二进制服务。
+  # 留着旧进程，改完看不到预期行为时最难想到的原因是「当前跑的不是这份代码」。
+  stop_on_error = true
+  # 重启先发 SIGINT 让服务走优雅关闭（刷缓存快照、连接池收敛）。
+  send_interrupt = true
+  kill_delay = "3s"
+
+  # 只监听 Go 源码：yaml / md / toml 的改动不会触发重启。
+  include_ext = ["go"]
+  # bin 与 data 必须排除：前者写出产物会形成「编译→触发→再编译」的死循环，
+  # 后者是运行期一直在写的库文件与快照。
+  exclude_dir = ["bin", "data", ".git", "vendor", "node_modules", ".vscode", ".idea"]
+  exclude_regex = ["_test\\.go$", "^\\.#", "~$"]
+  exclude_unchanged = true
+
+  poll = false
+  log = "build-errors.log"
+
+[log]
+  time = true
+
+[misc]
+  clean_on_exit = false
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true

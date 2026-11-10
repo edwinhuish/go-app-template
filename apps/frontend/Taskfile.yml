@@ -1,0 +1,51 @@
+version: '3'
+
+# 前端任务。包管理器是 pnpm，版本由 package.json 的 packageManager 字段锁定。
+# PNPM 可覆盖，便于在没把 pnpm 放进 PATH 的机器上指定绝对路径：
+#   task frontend:build PNPM=/usr/local/bin/pnpm
+vars:
+  PNPM: '{{.PNPM | default "pnpm"}}'
+
+tasks:
+  default:
+    desc: 列出前端可用任务
+    silent: true
+    cmds:
+      - task --list
+
+  install:
+    desc: 安装依赖（按 pnpm-lock.yaml 对齐，允许就地更新锁文件）
+    cmds:
+      - '{{.PNPM}} install'
+
+  install:ci:
+    desc: 严格按锁文件安装（CI / 发布用；锁文件与 package.json 不一致时直接失败）
+    cmds:
+      - '{{.PNPM}} install --frozen-lockfile'
+
+  dev:
+    desc: 启动 Vite 开发服务器（:5173，/api 代理到 :8080）
+    cmds:
+      - '{{.PNPM}} run dev'
+
+  build:
+    desc: 类型检查并打包
+    cmds:
+      - '{{.PNPM}} run build'
+
+  typecheck:
+    desc: 仅做 TypeScript 类型检查
+    cmds:
+      - '{{.PNPM}} run typecheck'
+
+  preview:
+    desc: 预览打包结果
+    deps: [build]
+    cmds:
+      - '{{.PNPM}} run preview'
+
+  clean:
+    # 只删构建产物，不动 node_modules——重装要走 install，避免误删后还要联网。
+    desc: 清理构建产物 dist/
+    cmds:
+      - rm -rf dist

@@ -1,0 +1,94 @@
+version: '3'
+
+# monorepo 统一入口。
+#
+# 约定：根 Taskfile 只做编排，不写具体构建逻辑；
+# 真正的命令下沉到 apps/*/Taskfile.yml，避免同一件事在两处各维护一份。
+
+includes:
+  backend:
+    taskfile: ./apps/backend/Taskfile.yml
+    dir: ./apps/backend
+  frontend:
+    taskfile: ./apps/frontend/Taskfile.yml
+    dir: ./apps/frontend
+
+tasks:
+  default:
+    desc: 列出全部可用任务
+    silent: true
+    cmds:
+      - task --list-all
+
+  install:
+    desc: 安装后端与前端依赖（前端走 pnpm，首次执行会生成 pnpm-lock.yaml）
+    cmds:
+      - task: backend:install
+      - task: frontend:install
+
+  install:ci:
+    desc: 按锁文件严格安装（CI / 发布用；前端锁文件与 package.json 不一致会直接失败）
+    cmds:
+      - task: backend:install
+      - task: frontend:install:ci
+
+  dev:
+    desc: 并行启动后端(:8080)与前端(:5173)，Ctrl-C 一并退出
+    deps:
+      - backend:dev
+      - frontend:dev
+
+  build:
+    desc: 构建后端二进制与前端静态产物
+    cmds:
+      - task: backend:build
+      - task: frontend:build
+
+  test:
+    desc: 运行后端测试
+    cmds:
+      - task: backend:test
+
+  lint:
+    desc: 后端 go vet + 前端类型检查
+    cmds:
+      - task: backend:vet
+      - task: frontend:typecheck
+
+  fmt:
+    desc: 格式化后端代码
+    cmds:
+      - task: backend:fmt
+
+  release:
+    # 发版是本地的一串动作（问版本号 -> 同步版本号 -> 提交、打 tag -> 问是否推送），
+    # 逻辑全在 scripts/release.sh：那里能按顺序校验工作区、远程与 tag 是否被占用，
+    # 失败时说清停在哪一步。这里只转传参数，不把流程在 Taskfile 里再写一份。
+    desc: 打版本 tag 并发版（会先问版本号；VERSION=1.2.3 REMOTE=origin PUSH=false DRY_RUN=true）
+    silent: true
+    interactive: true
+    env:
+      VERSION: '{{.VERSION | default ""}}'
+      REMOTE: '{{.REMOTE | default "origin"}}'
+      PUSH: '{{.PUSH | default "ask"}}'
+      DRY_RUN: '{{.DRY_RUN | default "false"}}'
+    cmds:
+      - scripts/release.sh
+
+  clean:
+    desc: 清理构建产物（bin/ 与前端 dist/）
+    cmds:
+      - task: backend:clean
+      - task: frontend:clean
+
+  infra:up:
+    desc: 启动 PostgreSQL 与 Redis 容器（另需 MySQL 时加 -- --profile mysql up -d）
+    dir: deployments
+    cmds:
+      - docker compose up -d
+
+  infra:down:
+    desc: 停止并移除容器
+    dir: deployments
+    cmds:
+      - docker compose down
