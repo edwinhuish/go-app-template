@@ -94,9 +94,11 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 └── VERSION                         版本号正本
 ```
 
-规范按端存放：`apps/backend/AGENTS.md` 与 `apps/frontend/AGENTS.md` 各管一端，
-根目录的 [`AGENTS.md`](AGENTS.md) 只是索引；两端共用的接口协议只有
-[`docs/contracts/api.md`](docs/contracts/api.md) 一份，端级规范只引用、不复制。
+规范按端存放：`apps/backend/AGENTS.md` 与 `apps/frontend/AGENTS.md` 各管一端，且**各自自包含**
+——不链接根目录或其他子项目的文档，需要的接口形状就写在自己文件里；根目录的
+[`AGENTS.md`](AGENTS.md) 只是索引。引用方向单向：根目录文档可以指向 `apps/`，反之不行。
+两端共用的接口协议在 [`docs/contracts/api.md`](docs/contracts/api.md) 定稿（评审基准），
+端级文档各留一份必要摘要，改契约时三处一起改。
 
 ## 存储：默认零依赖
 
@@ -257,6 +259,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
 - **改那一端的规范**：`apps/backend/AGENTS.md` / `apps/frontend/AGENTS.md` 是那一端的规范正本，
   旧的是 gin + gorm 分层、React + antd 约定；新工程换了框架，就把这份文件改成新工程的形状。
   留着过时的正本比没有更糟——AI 会照着它改。
+  改的时候保持**自包含**：不链接根目录或另一端的文档，需要的接口形状、任务名直接写在里面。
 - **保持契约单向**：新的一端只通过 `docs/contracts/api.md` 与另一端见面，不要为了省事让它
   直接 import / 读取另一端的代码或配置。
 - **跑一遍仓库级自检**：`task fmt && task lint && task test && task build`。

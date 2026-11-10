@@ -3,19 +3,72 @@
 本文件是**后端规范的唯一正本**，只管 `apps/backend/` 下的改动。目标不是描述项目，
 而是约束改动：照着做，改出来的代码和现有的看起来像一个人写的。
 
-- 前端规范：[`../frontend/AGENTS.md`](../frontend/AGENTS.md)
-- 接口协议与错误码（两端共用）：[`../../docs/contracts/api.md`](../../docs/contracts/api.md)
-- 跨端全景与文档地图：[`../../docs/architecture.md`](../../docs/architecture.md)
-- 怎么跑起来、占位替换：[`../../README.md`](../../README.md)
+**本文件自包含**：只描述本目录的约定、结构与用法，不引用任何目录之外的文档——仓库根的说明、
+公共契约、`apps/` 下其他子项目的规范都不在这里出现。需要跨项目的信息（对外接口形状、任务名）
+下面直接给出，读这一份就能开工。
 
-接口形状、码表、分页字段这里**不重复写**：只写在契约正本里，本文只写「怎么实现」。
+## 0. 独立工程约束
 
-> **本目录是独立工程**：不 import 总框架或 `apps/frontend` 的任何代码，也不依赖框架的配置才能
-> 构建（缺了就降级，不能报错）。根 `Taskfile.yml` 通过 `includes` 调用本目录，方向只能是
-> 框架 → 这里。边界细则见 [`../../AGENTS.md`](../../AGENTS.md) 第 3 节，
-> 整端替换步骤见 [`../../README.md`](../../README.md)「替换后端」。
+- 不 import 仓库根或 `apps/` 下其他子项目的代码，也不读它们的文件当配置；与外部只通过 HTTP 交互。
+- 不依赖本目录之外的任何文件才能构建：`task install && task build` 单独跑必须成功。
+  唯一的软读取：`Taskfile.yml` 会把仓库根的 `VERSION` 当版本号缺省值读一次，
+  读不到就退化为 `dev`（构建照常，只是产物自证 `dev`）。新增类似读取必须遵守同一条：缺失即降级。
+- 外部编排方（仓库根的任务入口）按**任务名**调用本目录的 `Taskfile.yml`，所以这些名字要保持：
+  `install` / `build` / `dev` / `dev:once` / `test` / `vet` / `fmt` / `clean`
+  （另有 `dev:pg`、`dev:mysql`、`run`、`tidy`、`tool:air` 供本地使用）。改名前先确认调用方。
 
-## 1. 先确认改的是哪一层
+## 1. 对外接口约定
+
+这一节是本服务对外的承诺，消费方照它对接，所以它是**兼容性约束**：改动等于破坏性变更。
+
+| 项 | 约定 |
+|---|---|
+| 前缀 | 业务接口一律挂在 `/api/v1` 下 |
+| 方法 | 只用 `GET` / `POST` / `PUT` / `DELETE` |
+| 鉴权头 | `Authorization: Bearer <token>`；缺失或失效返回 401 |
+| 请求 ID | 中间件生成或透传，响应头 `X-Request-ID` 与响应体 `request_id` 一致 |
+| 字段命名 | json 一律 `snake_case` |
+| 时间 | `time.Time` 序列化为 RFC3339；业务日期用 `model.DateOnly`；令牌过期 `expires_at` 用 Unix 秒 |
+
+响应体只有一种形状：
+
+```json
+{ "code": 0, "message": "ok", "data": {}, "request_id": "0f3c1a7e9b2d4c55" }
+```
+
+- `code = 0` 表示成功（HTTP 200，新建 201）；失败时 `data` 省略。
+- `message` 是给人看的文案，消费方可直接展示。
+- HTTP 状态码**只由业务码推导**：取 `code / 100` 的前三位。handler 不为某个错误单独挑状态码。
+
+业务码表（新增码的前三位必须与 HTTP 状态一致，且只在 `internal/pkg/errs` 定义，不写字面量）：
+
+| code | HTTP | 语义 |
+|---|---|---|
+| `0` | 200 / 201 | 成功 |
+| `40001` | 400 | 参数错误 / 业务校验不通过 |
+| `40101` | 401 | 未登录或登录态失效 |
+| `40301` | 403 | 已登录但无权限 |
+| `40401` | 404 | 资源不存在（含已软删除） |
+| `40901` | 409 | 唯一约束、乐观锁命中 0 行、状态不允许流转 |
+| `50001` | 500 | 内部错误（非业务错误统一折叠，真实原因只进日志） |
+| `50401` | 504 | 请求处理超时（ctx 截止时间到） |
+
+分页：
+
+| 入参 | 默认 | 上限 | 说明 |
+|---|---|---|---|
+| `page` | 1 | — | 非法值归 1 |
+| `page_size` | 20 | 200 | 非法值归默认，超上限截断 |
+| `keyword` | 空 | — | 各资源自行解释是否使用 |
+
+响应 `{ "list": [], "total": 0, "page": 1, "page_size": 20 }`；`list` 空结果是 `[]` 而不是 `null`。
+
+乐观锁（可选）：更新接口回传读到的 `updated_at` 原值，服务端据此判冲突；不传则退化为最后写入者获胜。
+
+**改了 `internal/dto` 的字段名或 `internal/pkg/errs` 的码，就是在改这份承诺**：同一个提交里更新本节，
+并在提交信息里点名「对外接口变更」，让消费方知道要跟。
+
+## 2. 先确认改的是哪一层
 
 | 你要做的事 | 落点 | 不要碰 |
 |---|---|---|
@@ -36,7 +89,7 @@ handler ──> service ──> repository ──> model
 
 反向 import 一定是设计错了：要么这段逻辑放错了层，要么该用 Option 注入。
 
-## 2. 硬性约束
+## 3. 硬性约束
 
 - `dto` 不 import `model`；互转写在 service 的 `toXxxItem` 里。
 - `service` 不 import gin；要当前用户，用 `service.ActorFrom(ctx)`。
@@ -44,12 +97,12 @@ handler ──> service ──> repository ──> model
 - `internal/pkg/*` 不 import `internal` 其它包（`pkg` 是叶子）。
 - **错误只走 `internal/pkg/errs`**：service 返回 `errs.BadRequest/ErrNotFound/...`；
   handler 统一 `response.Fail`，不要自己写 `c.JSON(400, ...)`。
-- **响应只用 `response.OK/Created/Fail`**，形状与状态码推导见契约正本。
+- **响应只用 `response.OK/Created/Fail`**：形状与状态码推导按第 1 节，不要在 handler 里重写。
 - **每个对外函数带 `ctx context.Context`** 并一路传到底：超时与取消靠它传导到驱动层。
 - **软删除用 `model.DeletedAt`**，唯一索引把 `deleted_at` 排进去（`priority` 见 `model/user.go`）。
 - **跨表写入用 `repository.TxManager`**，不要在 service 里手写 `db.Begin()`。
 
-## 3. 新增一个模块的清单
+## 4. 新增一个模块的清单
 
 按顺序做，每一步都能单独编译：
 
@@ -62,11 +115,11 @@ handler ──> service ──> repository ──> model
 6. `internal/handler/xxx.go`：`bindJSON`/`bindQuery`/`parseID` → 调 service → `response.*`。
 7. `internal/server/router.go`：需要登录的挂进 `secured` 组；管理端接口再叠 `middleware.RequireAdmin()`。
 8. 测试：至少覆盖 service 的校验分支；仓储的特殊查询补集成测试。
-9. 第 4 步定下的字段名就是契约的一部分，同一个提交里要改前端 `types`（见第 6 节）。
+9. 第 4 步定下的字段名，就是第 1 节那份对外承诺的一部分：改名按破坏性变更处理。
 
-前端侧对应的动作（`types` → `api/` → `pages/`）不属于本文件，见前端规范。
+本目录只有 Go 服务：页面、请求封装、前端构建都不在这里，也不为了迁就某个消费方在服务端加展示逻辑。
 
-## 4. 数据与存储约定
+## 5. 数据与存储约定
 
 | 主题 | 约定 |
 |---|---|
@@ -79,28 +132,28 @@ handler ──> service ──> repository ──> model
 | 事务 | 跨仓储写入用 `repository.TxManager.Transaction`，仓储按 ctx 自动加入 |
 | 多库支持 | 上层永远拿 `*gorm.DB`；驱动差异只在 `infra/database` 与 `pkg/dialect` 里消化 |
 
-「换存储不改代码」是这个模板的承诺之一：`database.driver` 改成 `postgres` / `mysql` / `sqlite`，
+「换存储不改代码」是这个工程的前提：`database.driver` 改成 `postgres` / `mysql` / `sqlite`，
 `cache.driver` 改成 `redis` / `memory`，业务层零改动。改完至少跑一次 `task test`，再接真实库验证。
 
-## 5. 配置与密钥
+## 6. 配置与密钥
 
-优先级：**配置文件 < 环境变量（`APP_` 前缀）**。
+优先级：**配置文件 < 环境变量（`APP_` 前缀）**，生产模板 `configs/config.prod.yaml`。
 
-- 配置文件按环境拆：`configs/config.yaml`（默认 SQLite）、`config.postgres.yaml`、`config.mysql.yaml`、`config.prod.yaml`。
+| 项 | 默认 | 说明 |
+|---|---|---|
+| `http.addr` | `:8080` | 监听地址；消费方连的就是这个端口 |
+| `http.cors_origins` | 本地 `5173` 两个来源 | 跨域白名单，生产改域名 |
+| `app.seed_admin_*` | `admin` / `admin123` | 仅在 `database.seed: true` 时建号，上线前必须改 |
+| `database.auto_migrate` | `true` | 启动即同步表结构；生产建议改显式迁移 |
+| `database.driver` | `sqlite` | 也可 `postgres` / `mysql`，字段名一致 |
+| `cache.driver` | `memory`（落盘 `data/cache.snapshot`） | 也可 `redis`；`fallback_to_memory` 生产应为 false |
+| `jwt.secret` | 开发用固定串 | 生产必须用 `APP_JWT_SECRET` 注入 32 位以上随机串 |
+| `log.level` / `log.format` | `info` / `text` | 生产建议 json |
+
 - 密码、JWT 密钥、DSN 生产一律走环境变量，不进仓库。
 - 启动期就校验（`config.Validate`）：驱动名、必填项、生产环境的密钥长度与 seed 开关。
   失败就退出，而不是等到第一个请求才 500。
-- 新增配置项要同时改：结构体字段 + 默认值 + 环境变量覆盖 + 校验；只加结构体字段等于给了个零值。
-
-## 6. 碰到契约时的联动
-
-改了 `internal/dto` 或 `internal/pkg/errs` 就是在改公共契约，按
-[契约正本的「变更流程」](../../docs/contracts/api.md#7-变更流程) 走，不要只改后端半边：
-
-1. 先改 `docs/contracts/api.md`；
-2. 再改 dto / errs；
-3. 同一个提交里改 `apps/frontend/src/types/index.ts` 与对应 `api/*.ts`；
-4. `task lint` 会跑前端 `tsc`，`types` 与 `dto` 对不上在这里暴露。
+- 新增配置项要同时改：结构体字段 + 默认值 + 环境变量覆盖 + 校验 + 本节表格；只加结构体字段等于给了个零值。
 
 ## 7. 注释与命名
 
@@ -110,21 +163,28 @@ handler ──> service ──> repository ──> model
 - 命名用业务语言（`Note`、`OwnerID`），不要用技术缩写（`Nt`、`oid`）。
 - 表名 `sys_` / `biz_` 前缀，和现有保持一致。
 
-## 8. 改动后必须自检
+## 8. 运行与自检
+
+在本目录执行（不必依赖仓库根的入口）：
 
 ```bash
-task -d apps/backend fmt
-task -d apps/backend vet
-task -d apps/backend test
-task -d apps/backend build      # 确认产物能构建
+task install        # go mod download + tidy
+task dev            # air 热重载，默认 SQLite + 内存缓存，监听 :8080
+task dev:once       # 单次启动，不监听变更
+task fmt            # gofmt
+task vet            # go vet
+task test           # 单元测试
+task build          # 产物到 bin/app-server，版本号构建期注入
 ```
 
-根目录的 `task fmt / lint / test / build` 是同一批任务的编排入口，CI 与本地跑的是同一批命令。
-改了路由、配置字段、环境变量名时，连带检查：
+首次启动会自动建表并写入 `app.seed_admin_*` 那个账号；`data/` 下是 SQLite 与缓存快照，
+要推倒重来就删 `data/app.db*` 与 `data/cache.snapshot`。
 
-- `docs/contracts/api.md` 是否需要同步（路由前缀、鉴权头、字段名都算契约）；
-- `../../README.md` 的命令与占位表是否还对；
-- 前端 `types` 与后端 `dto` 是否仍然一致。
+改动后的连带检查：
+
+- 动了线格式（前缀、响应体、码表、分页字段）→ 更新第 1 节，并在提交信息里点名；
+- 动了配置项 / 环境变量名 → 更新第 6 节的表；
+- 动了 `Taskfile.yml` 的任务名 → 确认第 0 节列出的名字还在（外部编排按名调用）。
 
 ## 9. 不要做的事
 
@@ -133,6 +193,5 @@ task -d apps/backend build      # 确认产物能构建
 - 不要在 `internal/pkg` 里加与项目相关的类型（那等于把业务下沉到叶子包）。
 - 不要为了「以后可能用到」预留没有调用方的抽象；有第二个调用方时再抽。
 - 不要新增第二套错误处理 / 响应格式 / 日志库；先用现有的。
-- 不要在前端仓库之外的地方补前端逻辑（后端不渲染页面，也不做前端兜底）。
-- 不要 import 总框架或 `apps/frontend` 的代码，也不要读它们的文件当配置（跨端只走 HTTP 契约）。
-- 不要让本目录的构建依赖仓库根的某个文件或变量：单独拷出去必须还能 `task install && task build`。
+- 不要 import 仓库根或其他子项目的代码，也不要读它们的文件当配置（对外只走 HTTP）。
+- 不要让本目录的构建依赖目录之外的某个文件或变量：单独拷出去必须还能 `task install && task build`。

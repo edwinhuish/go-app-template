@@ -44,10 +44,15 @@ apps/backend        apps/frontend
 | apps → 框架 | 否 | 子项目 import 根目录实现；缺了根 `VERSION` / 根变量就构建失败 |
 | apps A → apps B | 否 | 前端 import 后端代码；后端读前端 `package.json`；共用一份「两边都能用」的源码目录 |
 
-跨端唯一的合法通道是 HTTP + [`contracts/api.md`](contracts/api.md)。两条子项目的判据：
+跨端唯一的合法通道是 HTTP + [`contracts/api.md`](contracts/api.md)。文档层面同理：
+本文件与 `README.md` 可以链接到 `apps/` 内的文件，`apps/` 下的文档不反过来链接这里。
+
+三条子项目的判据：
 
 - 把这个目录单独拷到别处，`install` 与 `build` 还能跑通（降级可以，报错不行）；
-- 子项目的源码、配置、Taskfile 里不出现 `../../`。
+- 子项目的源码、配置、Taskfile 里不出现 `../../`；
+- 子项目的文档里不出现指向目录之外的链接
+  （`grep -rn --exclude-dir=node_modules '](\.\./' apps/` 应当无输出）。
 
 细节与「已知软读取」登记表在 [`../AGENTS.md`](../AGENTS.md) 第 3 节，自检命令也在那里。
 
