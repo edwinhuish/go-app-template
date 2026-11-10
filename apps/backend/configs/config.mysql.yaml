@@ -1,7 +1,6 @@
 # MySQL + Redis 的本地联调配置。
 #
-# 前置：task infra:up 且 docker compose --profile mysql up -d
-# 启动：task backend:dev:mysql
+# 启动：task dev:mysql（本任务自己拉起 deployments/docker-compose.yml 里的 mysql 与 redis）
 app:
   name: app
   env: dev

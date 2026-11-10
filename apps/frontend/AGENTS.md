@@ -11,8 +11,9 @@
 
 - 不 import 仓库根或 `apps/` 下其他子项目的代码，也不读它们的文件当配置；与外部只通过 HTTP 交互。
 - 不依赖本目录之外的任何文件才能构建：`pnpm install && pnpm build` 单独跑必须成功。
-- 外部编排方（仓库根的任务入口）按**任务名**调用本目录的 `Taskfile.yml`，所以这些名字要保持：
-  `install` / `install:ci` / `dev` / `build` / `typecheck` / `clean`（另有 `preview` 供本地使用）。
+- 外部编排方（仓库根的统一入口）按**任务名**调用本目录的 `Taskfile.yml`，所以这些名字要保持：
+  `install` / `install:ci` / `dev` / `build` / `lint` / `clean`。根只派发这几个名字，
+  没定义就跳过本端。本端没有 `fmt` 任务（工程里没有格式化工具），`preview` 仅供本地使用。
   改名前先确认调用方。
 - `package.json` 的 `version` 字段会被外部发版流程同步写回，**不要删这个字段**，也不要改成别的结构。
 
@@ -139,15 +140,16 @@ src/
 
 ```bash
 task install        # pnpm install
+task install:ci     # pnpm install --frozen-lockfile
 task dev            # Vite 开发服务 :5173，/api 代理到 :8080
-task typecheck      # tsc --noEmit；本工程没有 eslint，这一步就是主要防线
+task lint           # tsc --noEmit；本工程没有 eslint，这一步就是主要防线
 task build          # 类型检查 + 打包到 dist/
 ```
 
 改动后的连带检查：
 
 - 动了线格式（前缀、响应体、码表、分页字段）→ 更新第 2 节，并确认 `types` 与 `client.ts` 同步，
-  `task typecheck` 必须通过；
+  `task lint` 必须通过；
 - 动了 `vite.config.ts` 的端口或代理 → 确认与服务端监听端口一致；
 - 动了 `Taskfile.yml` 的任务名或 `package.json` 的 `version` / `scripts` → 确认第 0 节的要求还成立。
 

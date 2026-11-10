@@ -42,16 +42,16 @@
 所以依赖方向只有一个：
 
 ```
-总框架（根 Taskfile.yml、scripts/、.github/workflows/、deployments/、docs/、VERSION、.gitignore）
+总框架（根 Taskfile.yml、scripts/、.github/workflows/、docs/、VERSION、.gitignore）
    │  只允许这一向：框架读取 / 调用 / 引用 apps
    ▼
 apps/<端>   ──✗──>  apps 下的其他子项目
             ──✗──>  总框架的代码、模块、配置
 ```
 
-- **允许**：框架 → apps。根 `Taskfile.yml` 用 `includes` 调用子项目的 Taskfile；
-  `scripts/release.sh` 写 `apps/frontend/package.json` 的版本号；框架的文档（本文件、
-  `docs/`、`README.md`）链接到 `apps/` 内的文件。
+- **允许**：框架 → apps。根目录的 8 个统一命令由 `scripts/task-entry.sh` 派发到
+  `apps/*/Taskfile.yml` 的同名任务；`scripts/release.sh` 写 `apps/frontend/package.json`
+  的版本号；框架的文档（本文件、`docs/`、`README.md`）链接到 `apps/` 内的文件。
 - **禁止**：apps → 框架，以及 apps A → apps B。跨端只能通过
   [`docs/contracts/api.md`](docs/contracts/api.md) 这条契约见面 —— HTTP 是边界，不是 import。
 
@@ -92,7 +92,7 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
 | `apps/backend/**` | `apps/backend/AGENTS.md` |
 | `apps/frontend/**` | `apps/frontend/AGENTS.md` |
 | `apps/backend/internal/dto`、`apps/backend/internal/pkg/errs`、`apps/backend/internal/pkg/response`、`apps/frontend/src/types`、`apps/frontend/src/api` | 上表对应的一份 **+** `docs/contracts/api.md` |
-| `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`deployments/`、`scripts/`、`.github/workflows/` | `README.md` 的命令表与发版一节；改完四处（根 Taskfile、端 Taskfile、README、CI）对齐，并确认没引入 apps → 框架的依赖（第 3 节） |
+| `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`scripts/`、`.github/workflows/` | `README.md` 的命令表与发版一节；改完四处（根 Taskfile、端 Taskfile、README、CI）对齐，并确认没引入 apps → 框架的依赖（第 3 节） |
 | 整端替换（换掉 `apps/backend` 或 `apps/frontend`） | `README.md` 的「替换前端 / 替换后端」+ 第 3 节 + 那一端的 `AGENTS.md`（规范要改成新工程的形状） |
 | `docs/**` | 本文第 5 节的一致性规则 |
 
@@ -135,7 +135,7 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
 - **可以整端换掉**：每一端都能被另一个同语言工程整体替换，换个目录 + 改几处接线即可，
   步骤与配置项见 [`README.md`](README.md)「替换前端 / 替换后端」。替换时不允许顺手把
   另一端或框架改造成彼此耦合 —— 那会直接违反第 3 节。
-- **各自自检**：后端 `task -d apps/backend test`、前端 `task -d apps/frontend typecheck`；
+- **各自自检**：后端 `task -d apps/backend test`、前端 `task -d apps/frontend lint`；
   根目录 `task fmt / lint / test / build` 只是编排入口，不新增命令。
 - **删示例别删规范**：`README.md` 的占位替换清单里删 `Note` 示例模块时，
   两份 `AGENTS.md` 里的示例引用只是「样板」，不必跟着删，除非该约定本身失效。

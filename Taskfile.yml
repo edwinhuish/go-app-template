@@ -1,94 +1,98 @@
 version: '3'
 
-# monorepo 统一入口。
+# 根目录只做「统一入口」：下面 8 个命令，每个都会把同名任务派发到 apps/ 下所有子项目，
+# 子项目没定义就跳过。实现全在 scripts/task-entry.sh —— 根 Taskfile 只做转调，
+# 不在 YAML 里再写一遍流程。
 #
-# 约定：根 Taskfile 只做编排，不写具体构建逻辑；
-# 真正的命令下沉到 apps/*/Taskfile.yml，避免同一件事在两处各维护一份。
-
-includes:
-  backend:
-    taskfile: ./apps/backend/Taskfile.yml
-    dir: ./apps/backend
-  frontend:
-    taskfile: ./apps/frontend/Taskfile.yml
-    dir: ./apps/frontend
+# 为什么不用 includes：include 要把每一端写死在根文件里（新增一端得回来改），
+# 暴露的也是 backend:build / frontend:build 这类命名空间任务。现在运行时遍历
+# apps/*/Taskfile.y*ml，加一个新端不需要动根目录任何文件。
+#
+# 单个端的任务直接对那一端执行：
+#   task -d apps/backend build
+#   task -d apps/frontend dev
+#
+# 带参数的命令要放在 `--` 之后 —— Task 自己的参数解析不接受裸 --ci / --no-fmt：
+#   task install -- --ci      # 严格按锁文件安装，不一致直接失败
+#   task lint  -- --no-fmt    # 只检查，不格式化
 
 tasks:
   default:
-    desc: 列出全部可用任务
+    desc: 列出统一入口的命令
     silent: true
     cmds:
-      - task --list-all
+      - task --list
 
   install:
-    desc: 安装后端与前端依赖（前端走 pnpm，首次执行会生成 pnpm-lock.yaml）
+    desc: 装依赖（task install -- --ci：严格按锁文件，锁文件与 package.json 不一致直接失败）
+    silent: true
+    env:
+      TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - task: backend:install
-      - task: frontend:install
-
-  install:ci:
-    desc: 按锁文件严格安装（CI / 发布用；前端锁文件与 package.json 不一致会直接失败）
-    cmds:
-      - task: backend:install
-      - task: frontend:install:ci
-
-  dev:
-    desc: 并行启动后端(:8080)与前端(:5173)，Ctrl-C 一并退出
-    deps:
-      - backend:dev
-      - frontend:dev
+      - 'scripts/task-entry.sh install "$TASK_ARGS"'
 
   build:
-    desc: 构建后端二进制与前端静态产物
+    desc: 构建所有子项目的产物
+    silent: true
+    env:
+      TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - task: backend:build
-      - task: frontend:build
+      - 'scripts/task-entry.sh build "$TASK_ARGS"'
 
-  test:
-    desc: 运行后端测试
+  clean:
+    desc: 清理所有子项目的构建产物
+    silent: true
+    env:
+      TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - task: backend:test
+      - 'scripts/task-entry.sh clean "$TASK_ARGS"'
+
+  dev:
+    # interactive：几端的开发进程都要直连终端，否则 Ctrl-C 与热重载的输出都不对。
+    desc: 并行启动所有子项目的开发环境（Ctrl-C 一并退出）
+    silent: true
+    interactive: true
+    env:
+      TASK_ARGS: '{{.CLI_ARGS}}'
+    cmds:
+      - 'scripts/task-entry.sh dev "$TASK_ARGS"'
 
   lint:
-    desc: 后端 go vet + 前端类型检查
+    desc: 格式化并检查所有子项目（task lint -- --no-fmt：只检查不格式化）
+    silent: true
+    env:
+      TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - task: backend:vet
-      - task: frontend:typecheck
+      - 'scripts/task-entry.sh lint "$TASK_ARGS"'
 
   fmt:
-    desc: 格式化后端代码
+    desc: 格式化所有子项目代码
+    silent: true
+    env:
+      TASK_ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - task: backend:fmt
+      - 'scripts/task-entry.sh fmt "$TASK_ARGS"'
+
+  test:
+    desc: 运行所有子项目的测试
+    silent: true
+    env:
+      TASK_ARGS: '{{.CLI_ARGS}}'
+    cmds:
+      - 'scripts/task-entry.sh test "$TASK_ARGS"'
 
   release:
-    # 发版是本地的一串动作（问版本号 -> 同步版本号 -> 提交、打 tag -> 问是否推送），
-    # 逻辑全在 scripts/release.sh：那里能按顺序校验工作区、远程与 tag 是否被占用，
-    # 失败时说清停在哪一步。这里只转传参数，不把流程在 Taskfile 里再写一份。
+    # 发版仍是本地的一串动作（问版本号 -> 同步版本号 -> 提交、打 tag -> 问是否推送），
+    # 逻辑在 scripts/release.sh：那里能按顺序校验工作区、远程与 tag 是否被占用。
+    # 子项目若自己定义了 release 任务，会先跑它（见 scripts/task-entry.sh）。
     desc: 打版本 tag 并发版（会先问版本号；VERSION=1.2.3 REMOTE=origin PUSH=false DRY_RUN=true）
     silent: true
     interactive: true
     env:
+      TASK_ARGS: '{{.CLI_ARGS}}'
       VERSION: '{{.VERSION | default ""}}'
       REMOTE: '{{.REMOTE | default "origin"}}'
       PUSH: '{{.PUSH | default "ask"}}'
       DRY_RUN: '{{.DRY_RUN | default "false"}}'
     cmds:
-      - scripts/release.sh
-
-  clean:
-    desc: 清理构建产物（bin/ 与前端 dist/）
-    cmds:
-      - task: backend:clean
-      - task: frontend:clean
-
-  infra:up:
-    desc: 启动 PostgreSQL 与 Redis 容器（另需 MySQL 时加 -- --profile mysql up -d）
-    dir: deployments
-    cmds:
-      - docker compose up -d
-
-  infra:down:
-    desc: 停止并移除容器
-    dir: deployments
-    cmds:
-      - docker compose down
+      - 'scripts/task-entry.sh release "$TASK_ARGS"'

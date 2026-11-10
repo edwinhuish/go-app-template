@@ -9,28 +9,30 @@
 .
 ├── apps/
 │   ├── backend/           Go 服务（gin + gorm）
-│   │   └── AGENTS.md      后端规范正本
+│   │   ├── AGENTS.md      后端规范正本
+│   │   └── deployments/   本端开发环境用的容器（docker compose）
 │   └── frontend/          React 管理端（Vite + TS + antd）
 │       └── AGENTS.md      前端规范正本
-├── deployments/           本地基础设施（docker compose）
 ├── docs/
 │   ├── architecture.md    本文件：跨端全景
 │   └── contracts/api.md   接口协议与错误码正本（两端共用）
-├── scripts/               发版与发布流水线的脚本
-├── Taskfile.yml           命令总入口（只编排，不实现）
+├── scripts/               统一入口（task-entry.sh）与发版、发布流水线的脚本
+├── Taskfile.yml           命令总入口（只转调 scripts/task-entry.sh，不实现）
 └── VERSION                版本号正本
 ```
 
-前后端各自有独立的 `Taskfile.yml`，根只做编排；CI 与本地跑的是同一批 Task 任务，
-不存在「CI 里另有一套命令」。`apps/` 下每个子项目都是独立工程（可单独拷出、单独构建），
-依赖方向见下一节。
+前后端各自有独立的 `Taskfile.yml`；根目录只有 8 个统一命令（`install` / `build` / `clean` /
+`dev` / `lint` / `fmt` / `release` / `test`），运行时遍历 `apps/*` 把同名任务派发下去，
+子项目没定义就跳过。本地一条 `task lint` 走的是与 CI 同一条链路（编译、vet、gofmt、单测、
+前端类型检查），不存在「CI 里另有一套命令」。
+`apps/` 下每个子项目都是独立工程（可单独拷出、单独构建），依赖方向见下一节。
 
 ## 2. 依赖方向：只有「框架 → apps」这一向
 
 `apps/` 下每个子项目都是**独立工程**，不是总框架的模块：
 
 ```
-总框架（Taskfile.yml、scripts/、.github/workflows/、deployments/、docs/、VERSION、.gitignore）
+总框架（Taskfile.yml、scripts/、.github/workflows/、docs/、VERSION、.gitignore）
    │  允许：框架读取 / 调用 / 引用 apps
    │  禁止：apps 反向读取框架的代码、模块、配置
    ▼
@@ -40,7 +42,7 @@ apps/backend        apps/frontend
 
 | 方向 | 允许 | 例子 |
 |---|---|---|
-| 框架 → apps | 是 | 根 `Taskfile.yml` 用 `includes` 调子项目 Taskfile；`scripts/release.sh` 写 `apps/frontend/package.json` 版本号；文档链接到 `apps/` 内文件 |
+| 框架 → apps | 是 | 根目录统一命令经 `scripts/task-entry.sh` 调子项目的同名任务；`scripts/release.sh` 写 `apps/frontend/package.json` 版本号；文档链接到 `apps/` 内文件 |
 | apps → 框架 | 否 | 子项目 import 根目录实现；缺了根 `VERSION` / 根变量就构建失败 |
 | apps A → apps B | 否 | 前端 import 后端代码；后端读前端 `package.json`；共用一份「两边都能用」的源码目录 |
 
@@ -63,7 +65,7 @@ apps/backend        apps/frontend
 | 接口形状与错误码 | 后端实现、两端共同遵守 | [`contracts/api.md`](contracts/api.md) |
 | 字段命名 | 后端 `dto` 的 json tag，前端照抄 | `apps/backend/internal/dto` ↔ `apps/frontend/src/types` |
 | 开发期连通 | Vite 把 `/api` 代理到 `127.0.0.1:8080` | `apps/frontend/vite.config.ts` |
-| 部署期连通 | 网关按 `/api` 前缀转发 | `deployments/` |
+| 部署期连通 | 网关按 `/api` 前缀转发 | 部署侧（仓库不含网关配置） |
 
 跨越这条边界的改动只有一种：**契约变更**。它必须在同一个提交里闭合 ——
 先改契约文档，再改后端，同一个提交里改前端。流程见契约正本第 7 节。

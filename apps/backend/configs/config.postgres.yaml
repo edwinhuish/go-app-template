@@ -1,7 +1,6 @@
 # PostgreSQL + Redis 的本地联调配置。
 #
-# 前置：task infra:up（deployments/docker-compose.yml 里的容器）
-# 启动：task backend:dev:pg
+# 启动：task dev:pg（本任务自己拉起 deployments/docker-compose.yml 里的 postgres 与 redis）
 app:
   name: app
   env: dev

@@ -32,10 +32,15 @@ corepack enable pnpm        # 之后 pnpm 按 packageManager 自动取对应版�
 ## 快速开始
 
 ```bash
-task install            # 装依赖（后端 go mod + 前端 pnpm install，首次会生成 pnpm-lock.yaml）
-task backend:tool:air   # 一次性：装后端热重载工具 air（go install，不进 go.mod）
-task dev                # 并行起后端 :8080（air 热重载）与前端 :5173（Vite HMR）
+task install                  # 装依赖（后端 go mod + 前端 pnpm install，首次会生成 pnpm-lock.yaml）
+task -d apps/backend tool:air # 一次性：装后端热重载工具 air（go install，不进 go.mod）
+task dev                      # 并行起后端 :8080（air 热重载）与前端 :5173（Vite HMR）
 ```
+
+根目录只有 8 个统一命令，每个都会自动派发到 `apps/` 下所有子项目的同名任务
+（子项目没定义就跳过，新增一端不用改根目录）：`install` / `build` / `clean` / `dev` /
+`lint` / `fmt` / `release` / `test`。单个端的任务直接对那一端执行：`task -d apps/backend build`。
+需要传参数的放进 `--` 之后：`task install -- --ci`、`task lint -- --no-fmt`。
 
 打开 <http://localhost:5173>，开发环境默认账号 **admin / admin123**
 （来自 `apps/backend/configs/config.yaml` 的 `app.seed_admin_*`，上线前必须改）。
@@ -77,6 +82,7 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 │   │   │   ├── repository/       数据访问（接口 + gorm 实现）
 │   │   │   ├── server/           gin 引擎、路由表、middleware
 │   │   │   └── service/          业务规则、事务、模型↔契约互转
+│   │   ├── deployments/          本端开发环境用的容器（PostgreSQL / MySQL / Redis）
 │   │   ├── .air.toml             热重载配置
 │   │   ├── Dockerfile            多阶段构建
 │   │   └── Taskfile.yml          后端任务
@@ -84,21 +90,21 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 │       ├── AGENTS.md             前端规范正本（只此一份）
 │       ├── src/{api,components,config,constants,hooks,pages,providers,router,types,utils}
 │       └── Taskfile.yml          前端任务
-├── deployments/docker-compose.yml  本地 PostgreSQL / MySQL / Redis
-├── AGENTS.md                       规范索引：改哪端读哪份 + 命名与维护规则
+├── AGENTS.md                    规范索引：改哪端读哪份 + 命名与维护规则
 ├── docs/
-│   ├── architecture.md             跨端全景（不写单端规范）
-│   └── contracts/api.md            接口协议与错误码正本（两端共用）
+│   ├── architecture.md          跨端全景（不写单端规范）
+│   └── contracts/api.md         接口协议与错误码正本（两端共用）
 ├── .github/workflows/
-│   ├── ci.yml                      提交即跑的检查（编译、vet、gofmt、单测、前端类型检查）
-│   └── release.yml                 发版流水线（tag 触发：编译、打包、发 Release、推镜像）
+│   ├── ci.yml                   提交即跑的检查（编译、vet、gofmt、单测、前端类型检查）
+│   └── release.yml              发版流水线（tag 触发：编译、打包、发 Release、推镜像）
 ├── scripts/
-│   ├── release.sh                  本地发版：改版本号 → 提交 → 打 tag → 推送
-│   ├── release-version.sh          解析本次发布的版本号（流水线用）
-│   ├── release-previous-tag.sh     查找上一个版本标签（流水线用）
-│   └── release-notes.sh            生成 Release 正文（流水线用）
-├── Taskfile.yml                    命令总入口
-└── VERSION                         版本号正本
+│   ├── task-entry.sh            统一入口：把 8 个命令派发到 apps/ 下所有子项目
+│   ├── release.sh               本地发版：改版本号 → 提交 → 打 tag → 推送
+│   ├── release-version.sh       解析本次发布的版本号（流水线用）
+│   ├── release-previous-tag.sh  查找上一个版本标签（流水线用）
+│   └── release-notes.sh         生成 Release 正文（流水线用）
+├── Taskfile.yml                 命令总入口（只做转调，逻辑在 scripts/task-entry.sh）
+└── VERSION                      版本号正本
 ```
 
 规范按端存放：`apps/backend/AGENTS.md` 与 `apps/frontend/AGENTS.md` 各管一端，且**各自自包含**
@@ -114,9 +120,14 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 
 | 想跑的组合 | 执行 |
 |---|---|
-| SQLite + 内存（默认） | `task backend:dev` |
-| PostgreSQL + Redis | `task infra:up`，再 `task backend:dev:pg` |
-| MySQL + Redis | `task infra:up` + `docker compose --profile mysql up -d`，再 `task backend:dev:mysql` |
+| SQLite + 内存（默认） | `task dev`，或只起后端 `task -d apps/backend dev` |
+| PostgreSQL + Redis | `task -d apps/backend dev:pg`（容器由这条命令自己拉起） |
+| MySQL + Redis | `task -d apps/backend dev:mysql`（同上） |
+| 停掉上面拉起的容器 | `task -d apps/backend dev:down`（数据卷保留） |
+
+容器属于**后端自己的开发环境**：编排文件在 `apps/backend/deployments/docker-compose.yml`，
+由后端的 `dev:pg` / `dev:mysql` 负责启动，根目录不再有统一的 `infra:up` / `infra:down`——
+哪个端需要什么容器，由那个端的 dev 命令自己管。
 
 切换只改配置，不改代码。也可以用环境变量整段覆盖：
 
@@ -124,29 +135,39 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 APP_DB_DRIVER=postgres APP_DB_HOST=127.0.0.1 APP_DB_USER=app \
 APP_DB_PASSWORD=app APP_DB_NAME=app \
 APP_CACHE_DRIVER=redis APP_REDIS_ADDR=127.0.0.1:6379 \
-task backend:run
+task -d apps/backend run
 ```
 
 优先级：配置文件 < `APP_*` 环境变量。生产模板见 `configs/config.prod.yaml`。
 
 ## 命令
 
-| 命令 | 作用 |
-|---|---|
-| `task` | 列出全部任务 |
-| `task install` | 安装前后端依赖 |
-| `task install:ci` | 按锁文件严格安装（前端 `--frozen-lockfile`） |
-| `task dev` | 并行启动前后端（air + Vite HMR） |
-| `task backend:dev:once` | 后端单次启动、不监听变更 |
-| `task build` | 后端二进制 + 前端静态产物 |
-| `task test` | 后端单元测试 |
-| `task lint` | `go vet` + 前端类型检查 |
-| `task fmt` | gofmt |
-| `task release` | 发版：问版本号 → 同步版本号 → 提交打 tag → 问是否推送 |
-| `task clean` | 清理 `bin/` 与 `dist/` |
-| `task infra:up` / `infra:down` | 启停 PostgreSQL + Redis（MySQL 加 `--profile mysql`） |
+根目录只有下面 8 个命令，每个都会遍历 `apps/` 下所有子项目、执行同名任务，
+**子项目没定义就跳过**：
 
-子目录也有各自任务：`task -d apps/backend -- --list`、`task -d apps/frontend -- --list`。
+| 命令 | 作用 | 参数 |
+|---|---|---|
+| `task install` | 装所有子项目依赖 | `--ci`：严格按锁文件（前端 `--frozen-lockfile`，锁文件与 `package.json` 不一致直接失败） |
+| `task build` | 构建所有子项目产物 | 无 |
+| `task clean` | 清理所有子项目构建产物 | 无 |
+| `task dev` | 并行启动所有子项目开发环境（Ctrl-C 一并退出） | 无 |
+| `task lint` | 先格式化、再检查所有子项目 | `--no-fmt`：只检查不格式化 |
+| `task fmt` | 格式化所有子项目代码 | 无 |
+| `task test` | 运行所有子项目测试 | 无 |
+| `task release` | 发版：先跑子项目的 `release`（若有），再问版本号 → 同步版本号 → 提交打 tag → 问是否推送 | 版本号走 `VERSION=` 等变量 |
+
+参数放在 `--` 之后 —— Task 自己的参数解析不接受裸 `--ci`：
+
+```bash
+task install -- --ci
+task lint -- --no-fmt
+```
+
+单个端的任务直接对那一端执行，`task -d apps/backend -- --list` 可以看它有哪些：
+`task -d apps/backend dev:once`（单次启动）、`task -d apps/frontend build` 等。
+
+新增一个子项目时，只要在 `apps/<名字>/Taskfile.yml` 里定义同名任务，根命令会自动带上它，
+不需要改根目录任何文件。
 
 ## 发版
 
@@ -163,8 +184,8 @@ app-server 0.1.0
 | 优先级 | 来源 | 用在哪 |
 |---|---|---|
 | 1（最高） | `-X main.version=…` 链接参数 | 发布流水线把 tag 名注进去；`docker build --build-arg VERSION=` 也走这条 |
-| 2 | `task backend:build APP_VERSION=1.2.3` | 本地试打某个号 |
-| 3 | 根目录 `VERSION` | `task backend:build` 没显式给号时的缺省值 |
+| 2 | `task -d apps/backend build APP_VERSION=1.2.3` | 本地试打某个号 |
+| 3 | 根目录 `VERSION` | `task -d apps/backend build` 没显式给号时的缺省值 |
 | 4（兜底） | 代码里的 `"dev"` | 裸 `go build` / air 热重载不带 ldflags，一眼看出不是发布产物 |
 
 ```bash
@@ -176,7 +197,8 @@ task release DRY_RUN=true         # 只打印将要发生什么
 
 ### 发布流水线
 
-`task release` 只负责打到 tag 为止；**tag 推上去之后由
+`task release` 负责本地这一半（先跑子项目自己定义的 `release` 任务，再改版本号、提交、打 tag、
+问是否推送）；**tag 推上去之后由
 [`.github/workflows/release.yml`](.github/workflows/release.yml) 接管**：
 
 | 触发 | 说明 |
@@ -211,28 +233,31 @@ scripts/release-notes.sh v1.3.0 v1.2.0         # 第二个参数留空 = 首次�
 
 | 接线点 | 谁来改 | 为什么 |
 |---|---|---|
-| 根 `Taskfile.yml` 的 `includes.<端> = {taskfile, dir}` | 总框架 | 根只做编排，按名字找到子项目的 Taskfile |
-| 子项目 `Taskfile.yml` 提供的**任务名** | 子项目 | 根按名调用（见各节清单），少一个根任务就断 |
+| `apps/<端>/Taskfile.yml` 的**任务名** | 子项目 | 根目录的统一入口按名字派发（见各节清单），名字不对就被跳过 |
 | `scripts/release.sh` 的 `PKG_FILE` | 总框架 | 发版时同步前端 `package.json` 的 `version` |
 | 端口与接口契约 | 两端各自 | 前端 `vite.config.ts` 的代理目标 ↔ 后端监听端口；契约见 [`docs/contracts/api.md`](docs/contracts/api.md) |
+
+根目录不再有 `includes`：`scripts/task-entry.sh` 运行时遍历 `apps/*/Taskfile.y*ml`，
+所以换掉整个目录、或改名成 `apps/<新名字>`，只要里面还叫 `Taskfile.yml` 就自动接上。
 
 ### 替换前端
 
 **步骤**
 
 1. 移走旧工程：`git rm -r apps/frontend`（想留后路就先 `git mv apps/frontend apps/frontend.old`）。
-2. 把新前端工程**拷成 `apps/frontend`**（`cp -r` / `git clone` 到该路径）。目录名建议保持
-   `frontend`：换名要同步改根 `Taskfile.yml` 的 `includes.frontend`、`scripts/release.sh` 的
-   `PKG_FILE`、以及两份 `AGENTS.md` 与本文的路径引用。
-3. 补 `apps/frontend/Taskfile.yml`，提供这 6 个任务名（根只认这些名字）：
+2. 把新前端工程**拷成 `apps/frontend`**（`cp -r` / `git clone` 到该路径）。换名成别的目录名也可以，
+   但要同步改 `scripts/release.sh` 的 `PKG_FILE`、以及两份 `AGENTS.md` 与本文的路径引用。
+3. 补 `apps/frontend/Taskfile.yml`，任务名对上统一入口（定义哪个就派发哪个，没定义就跳过）：
 
    | 任务 | 根里由谁调用 |
    |---|---|
-   | `install` / `install:ci` | `task install` / `task install:ci` |
+   | `install`（可选 `install:ci`） | `task install` / `task install -- --ci` |
    | `dev` | `task dev` |
    | `build` | `task build` |
-   | `typecheck` | `task lint` |
+   | `lint` | `task lint` |
    | `clean` | `task clean` |
+   | `fmt`（可选） | `task fmt` 与 `task lint` 的格式化步骤 |
+   | `test`（可选） | `task test` |
 
 4. 调整下列配置（**只在新前端自己的目录里改**）：
 
@@ -256,19 +281,20 @@ Vite 的 proxy target，二选一，不要两边都改）。
 **步骤**
 
 1. 移走旧服务：`git rm -r apps/backend`（或 `git mv` 到 `apps/backend.old`）。
-2. 把新服务拷成 `apps/backend`。换目录名要同步根 `Taskfile.yml` 的 `includes.backend`
-   （`taskfile` 与 `dir` 两个字段）、本文与 `docs/architecture.md` 里的路径引用，
+2. 把新服务拷成 `apps/backend`。换目录名要同步本文与 `docs/architecture.md` 里的路径引用，
    以及 `.gitignore` 里按目录名匹配的 `data/`、`configs/config.local.yaml`（确认仍覆盖新路径）。
-3. 补 `apps/backend/Taskfile.yml`，提供这 7 个任务名：
+   新工程要额外容器时，把自己的 compose 文件放在自己的目录里，由自己的 `dev` 负责拉起
+   （现有后端就是这样做的：`apps/backend/deployments/docker-compose.yml`）。
+3. 补 `apps/backend/Taskfile.yml`，任务名对上统一入口（定义哪个就派发哪个，没定义就跳过）：
 
    | 任务 | 根里由谁调用 |
    |---|---|
-   | `install` | `task install` / `task install:ci` |
+   | `install`（可选 `install:ci`） | `task install` / `task install -- --ci` |
    | `dev` | `task dev` |
    | `build` | `task build` |
    | `test` | `task test` |
-   | `vet` | `task lint` |
-   | `fmt` | `task fmt` |
+   | `lint` | `task lint` |
+   | `fmt` | `task fmt` 与 `task lint` 的格式化步骤 |
    | `clean` | `task clean` |
 
 4. 调整下列配置（只在新服务自己的目录里改）：
@@ -279,12 +305,12 @@ Vite 的 proxy target，二选一，不要两边都改）。
    | 环境变量前缀 | `internal/config`（或新框架的对应位置） | 换了前缀要同步本文「存储」一节的环境变量示例与 `apps/backend/AGENTS.md` 第 5 节 |
    | 配置文件位置与文件名 | `configs/config.yaml` 等 | 本文、`.gitignore` 的 `configs/config.local.yaml`、Taskfile 的 `CONFIG_FILE` 都引用这个路径，换名要一起改 |
    | 数据目录 | `data/` | 默认 SQLite 与缓存快照落在这里，`.gitignore` 已忽略同名的 `data/` |
-   | 二进制名 | Taskfile 的 `APP_NAME`、`Dockerfile` | 本文 `-version` 示例与 `docker build` 引用它 |
-   | 热重载配置 | `.air.toml` 与 Taskfile 的 `AIR_CONFIG` | `task dev` 走 `air -c .air.toml`；新工程不用 air 就改 `dev` 任务，别让根 `task dev` 直接挂掉 |
+   | 二进制名 | Taskfile 的 `APP_NAME`、`Dockerfile`、`.github/workflows/release.yml` 的 `APP_NAME` | 本文 `-version` 示例与 `docker build` 引用它 |
+   | 热重载配置 | `.air.toml` 与 Taskfile 的 `AIR_CONFIG` | `task dev` 派发的 `dev` 任务走 `air -c .air.toml`；新工程不用 air 就改 `dev` 任务，别让根 `task dev` 直接挂掉 |
    | 接口契约 | 响应体、错误码、分页、鉴权头 | 必须满足 [`docs/contracts/api.md`](docs/contracts/api.md)。新服务自带另一套形状就是契约变更：先改契约，再改前端 |
    | 版本号来源 | Taskfile 的 `APP_VERSION` | 框架约定根目录 `VERSION` 是正本，构建期用 `-X` 注入；独立使用（读不到 `VERSION`）时必须能退化成 `dev`，不能报错 |
 
-5. 生效：`task install` → `task backend:dev:once`（单次启动，确认能连库、能起来）→
+5. 生效：`task install` → `task -d apps/backend dev:once`（单次启动，确认能连库、能起来）→
    `task test`、`task lint`、`task build` 全绿。
 
 **前端不需要改**，除非新后端换了端口或改了契约形状。
@@ -307,12 +333,12 @@ Vite 的 proxy target，二选一，不要两边都改）。
 |---|---|---|
 | `example.com/app` | `apps/backend/go.mod` 与所有 import | 你的模块路径（如 `github.com/you/project`） |
 | `app` / `App` | `configs/*.yaml` 的 `app.name`、缓存前缀、`index.html` 标题、`AppLayout` 里的品牌名 | 项目名 |
-| `app-server` | `apps/backend/Taskfile.yml`、`Dockerfile`、`main.go` 的 `-version` 输出 | 二进制名 |
+| `app-server` | `apps/backend/Taskfile.yml`、`Dockerfile`、`main.go` 的 `-version` 输出、`.github/workflows/release.yml` 的 `APP_NAME` | 二进制名 |
 | `APP_` | `internal/config/config.go` 的所有环境变量 | 你的环境变量前缀 |
 | `admin` / `admin123` | `configs/config.yaml` 的 `app.seed_admin_*` | 初始管理员账号 |
 | `app_token` | `apps/frontend/src/constants/index.ts` | 前端令牌键（换项目名时一起换） |
 | `app-frontend` | `apps/frontend/package.json` 的 `name` | 前端包名 |
-| `app-postgres` / `app-mysql` / `app-redis` | `deployments/docker-compose.yml` | 容器名与库名 |
+| `app-postgres` / `app-mysql` / `app-redis` | `apps/backend/deployments/docker-compose.yml` | 容器名与库名 |
 | `0.1.0` | `VERSION`、`apps/frontend/package.json` | 起始版本 |
 | `https://app.example.com` | `configs/config.prod.yaml` 的 CORS | 你的域名 |
 | `biz_note` / `Note` / `/notes` | 示例模块（见下） | 真实业务实体 |

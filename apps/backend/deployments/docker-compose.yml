@@ -1,14 +1,14 @@
-# 本地基础设施：PostgreSQL + Redis（MySQL 用 profile 按需启动）
+# 后端开发环境需要的容器：PostgreSQL + Redis（MySQL 用 profile 按需启动）。
 #
-# 用法：
-#   docker compose up -d                 # postgres + redis
-#   docker compose --profile mysql up -d # 额外启动 mysql
-#   docker compose down                  # 停止并移除容器（数据卷保留）
+# 这份文件属于本端的开发环境，放在本目录里：换了数据库的开发方式由本端自己负责，
+# 不依赖仓库根再维护一份基础设施编排。
 #
-# 开发默认不需要这些：config.yaml 走 SQLite + 内存缓存。
-# 这里起的服务是给「验证换库 / 换缓存」用的，配套：
-#   task backend:dev:pg    -> config.postgres.yaml
-#   task backend:dev:mysql -> config.mysql.yaml
+# 用法（都不需要手动敲 docker 命令，dev 任务会自己拉起）：
+#   task dev:pg       # 拉起 postgres + redis，再以 config.postgres.yaml 热重载
+#   task dev:mysql    # 拉起 mysql + redis，再以 config.mysql.yaml 热重载
+#   task dev:down     # 停掉上面拉起的容器（数据卷保留）
+#
+# 默认的 task dev 走 SQLite + 内存缓存，不碰这里的任何容器。
 
 services:
   postgres:

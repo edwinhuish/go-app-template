@@ -1,8 +1,14 @@
 version: '3'
 
-# 前端任务。包管理器是 pnpm，版本由 package.json 的 packageManager 字段锁定。
+# 前端任务。命令只在这里维护一份：仓库根的统一入口按任务名调用本文件
+# （`task -d apps/frontend <任务>`），本地也可以直接在本目录跑 `task <任务>`。
+#
+# 包管理器是 pnpm，版本由 package.json 的 packageManager 字段锁定。
 # PNPM 可覆盖，便于在没把 pnpm 放进 PATH 的机器上指定绝对路径：
-#   task frontend:build PNPM=/usr/local/bin/pnpm
+#   task build PNPM=/usr/local/bin/pnpm
+#
+# 这里没有 fmt 任务：本工程没装 prettier / eslint，格式化没有可调用的工具。
+# 统一入口发现某个子项目没定义 fmt 时会跳过它，不会因此报错。
 vars:
   PNPM: '{{.PNPM | default "pnpm"}}'
 
@@ -33,8 +39,8 @@ tasks:
     cmds:
       - '{{.PNPM}} run build'
 
-  typecheck:
-    desc: 仅做 TypeScript 类型检查
+  lint:
+    desc: 类型检查（本工程没有 eslint，tsc 这一步就是主要防线）
     cmds:
       - '{{.PNPM}} run typecheck'
 

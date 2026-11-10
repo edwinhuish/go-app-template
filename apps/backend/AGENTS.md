@@ -13,9 +13,13 @@
 - 不依赖本目录之外的任何文件才能构建：`task install && task build` 单独跑必须成功。
   唯一的软读取：`Taskfile.yml` 会把仓库根的 `VERSION` 当版本号缺省值读一次，
   读不到就退化为 `dev`（构建照常，只是产物自证 `dev`）。新增类似读取必须遵守同一条：缺失即降级。
-- 外部编排方（仓库根的任务入口）按**任务名**调用本目录的 `Taskfile.yml`，所以这些名字要保持：
-  `install` / `build` / `dev` / `dev:once` / `test` / `vet` / `fmt` / `clean`
-  （另有 `dev:pg`、`dev:mysql`、`run`、`tidy`、`tool:air` 供本地使用）。改名前先确认调用方。
+- 外部编排方（仓库根的统一入口）按**任务名**调用本目录的 `Taskfile.yml`，所以这些名字要保持：
+  `install`（另有 `install:ci`）/ `build` / `dev` / `test` / `lint` / `fmt` / `clean`。
+  根只派发这几个名字，没定义就跳过本端。
+  `dev:once`、`dev:pg`、`dev:mysql`、`dev:down`、`run`、`tidy`、`tool:air` 只在本地使用
+  （`task -d apps/backend <任务>`）。改名前先确认调用方。
+- 本端开发环境需要的容器由本端自己负责：编排文件是 `deployments/docker-compose.yml`，
+  由 `dev:pg` / `dev:mysql` 在使用前拉起。不要指望仓库根去启动容器——根只管这 8 个命令。
 
 ## 1. 对外接口约定
 
@@ -169,10 +173,14 @@ handler ──> service ──> repository ──> model
 
 ```bash
 task install        # go mod download + tidy
-task dev            # air 热重载，默认 SQLite + 内存缓存，监听 :8080
+task install:ci     # 只 go mod download，不改 go.mod / go.sum
+task dev            # air 热重载，默认 SQLite + 内存缓存，监听 :8080（不需要容器）
 task dev:once       # 单次启动，不监听变更
+task dev:pg         # PostgreSQL + Redis：先拉起本端容器，再热重载
+task dev:mysql      # MySQL + Redis：同上
+task dev:down       # 停掉上面拉起的容器（数据卷保留）
 task fmt            # gofmt
-task vet            # go vet
+task lint           # go vet
 task test           # 单元测试
 task build          # 产物到 bin/app-server，版本号构建期注入
 ```
