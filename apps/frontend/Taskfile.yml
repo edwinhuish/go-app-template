@@ -20,14 +20,28 @@ tasks:
       - task --list
 
   install:
-    desc: 安装依赖（按 pnpm-lock.yaml 对齐，允许就地更新锁文件）
+    desc: 安装依赖（-- --ci：严格按 pnpm-lock.yaml 安装，锁文件与 package.json 不一致直接失败）
+    # 开关用 env 传进来，不直接插值进 shell：值原样到达脚本，不会被二次解析。
+    env:
+      ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - '{{.PNPM}} install'
-
-  install:ci:
-    desc: 严格按锁文件安装（CI / 发布用；锁文件与 package.json 不一致时直接失败）
-    cmds:
-      - '{{.PNPM}} install --frozen-lockfile'
+      # 命令级 silent：这一段是脚本，回显整段没有信息量，有用的输出由 pnpm 自己给。
+      - cmd: |
+          set -euf
+          # Task 会把 CLI_ARGS 里的每个参数 shell-quote 一遍（含 = 的会被单引号包住），
+          # 先剥掉包裹引号再比较。
+          arg="${ARGS:-}"
+          arg="${arg#[\"\']}"
+          arg="${arg%[\"\']}"
+          case "$arg" in
+            '') {{.PNPM}} install ;;
+            --ci) {{.PNPM}} install --frozen-lockfile ;;
+            *)
+              printf '✗ install 只支持 --ci，收到：%s\n' "$arg" >&2
+              exit 1
+              ;;
+          esac
+        silent: true
 
   dev:
     desc: 启动 Vite 开发服务器（:5173，/api 代理到 :8080）

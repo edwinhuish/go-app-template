@@ -12,7 +12,7 @@
 - 不 import 仓库根或 `apps/` 下其他子项目的代码，也不读它们的文件当配置；与外部只通过 HTTP 交互。
 - 不依赖本目录之外的任何文件才能构建：`pnpm install && pnpm build` 单独跑必须成功。
 - 外部编排方（仓库根的统一入口）按**任务名**调用本目录的 `Taskfile.yml`，所以这些名字要保持：
-  `install` / `install:ci` / `dev` / `build` / `lint` / `clean`。根只派发这几个名字，
+  `install`（可带 `-- --ci`）/ `dev` / `build` / `lint` / `clean`。根只派发这几个名字，
   没定义就跳过本端。本端没有 `fmt` 任务（工程里没有格式化工具），`preview` 仅供本地使用。
   改名前先确认调用方。
 - `package.json` 的 `version` 字段会被外部发版流程同步写回，**不要删这个字段**，也不要改成别的结构。
@@ -140,7 +140,7 @@ src/
 
 ```bash
 task install        # pnpm install
-task install:ci     # pnpm install --frozen-lockfile
+task install -- --ci # pnpm install --frozen-lockfile（锁文件与 package.json 不一致直接失败）
 task dev            # Vite 开发服务 :5173，/api 代理到 :8080
 task lint           # tsc --noEmit；本工程没有 eslint，这一步就是主要防线
 task build          # 类型检查 + 打包到 dist/

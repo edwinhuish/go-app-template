@@ -17,7 +17,7 @@ version: '3'
 #   task dev   -- backend             # 只起后端（前台跑）
 #
 # 单个端的任务也可以直接对那一端执行（不看这里的参数规则）：
-#   task -d apps/backend dev:once
+#   task -d apps/backend dev -- --db=pg
 #
 # 忘了有哪些命令：task help（不带任务名也一样，见下面 default 的说明）。
 

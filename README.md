@@ -120,14 +120,15 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 
 | 想跑的组合 | 执行 |
 |---|---|
-| SQLite + 内存（默认） | `task dev`，或只起后端 `task -d apps/backend dev` |
-| PostgreSQL + Redis | `task -d apps/backend dev:pg`（容器由这条命令自己拉起） |
-| MySQL + Redis | `task -d apps/backend dev:mysql`（同上） |
-| 停掉上面拉起的容器 | `task -d apps/backend dev:down`（数据卷保留） |
+| SQLite + 内存（默认） | `task dev`，或只起后端 `task dev -- backend` |
+| PostgreSQL + Redis | `task dev -- backend --db=pg`（容器由这条命令自己拉起） |
+| MySQL + Redis | `task dev -- backend --db=mysql`（同上） |
+| 跑一次就退、不热重载 | `task dev -- backend --once` |
+| 停掉上面拉起的容器 | `task dev -- backend --down`（数据卷保留） |
 
 容器属于**后端自己的开发环境**：编排文件在 `apps/backend/deployments/docker-compose.yml`，
-由后端的 `dev:pg` / `dev:mysql` 负责启动，根目录不再有统一的 `infra:up` / `infra:down`——
-哪个端需要什么容器，由那个端的 dev 命令自己管。
+由后端 `dev` 的 `--db=pg` / `--db=mysql` 负责启动，根目录不再有统一的 `infra:up` / `infra:down`
+——哪个端需要什么容器，由那个端的 dev 命令自己管。
 
 切换只改配置，不改代码。也可以用环境变量整段覆盖：
 
@@ -179,7 +180,7 @@ task dev -- backend                     # 只起后端（前台跑，Ctrl-C 退�
 `release` 是框架级的发版动作，不接受子项目名。
 
 单个端的任务也可以绕过统一入口直接对那一端执行，`task -d apps/backend -- --list` 可以看它有哪些：
-`task -d apps/backend dev:once`（单次启动）、`task -d apps/frontend build` 等。
+`task -d apps/backend dev -- --db=pg`（换库热重载）、`task -d apps/frontend build` 等。
 
 新增一个子项目时，只要在 `apps/<名字>/Taskfile.yml` 里定义同名任务，根命令会自动带上它，
 不需要改根目录任何文件。
@@ -266,7 +267,7 @@ scripts/release-notes.sh v1.3.0 v1.2.0         # 第二个参数留空 = 首次�
 
    | 任务 | 根里由谁调用 |
    |---|---|
-   | `install`（可选 `install:ci`） | `task install` / `task install -- --ci` |
+   | `install`（支持 `-- --ci` 开关） | `task install` / `task install -- --ci` |
    | `dev` | `task dev` |
    | `build` | `task build` |
    | `lint` | `task lint` |
@@ -304,7 +305,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
 
    | 任务 | 根里由谁调用 |
    |---|---|
-   | `install`（可选 `install:ci`） | `task install` / `task install -- --ci` |
+   | `install`（支持 `-- --ci` 开关） | `task install` / `task install -- --ci` |
    | `dev` | `task dev` |
    | `build` | `task build` |
    | `test` | `task test` |
@@ -325,7 +326,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
    | 接口契约 | 响应体、错误码、分页、鉴权头 | 必须满足 [`docs/contracts/api.md`](docs/contracts/api.md)。新服务自带另一套形状就是契约变更：先改契约，再改前端 |
    | 版本号来源 | Taskfile 的 `APP_VERSION` | 框架约定根目录 `VERSION` 是正本，构建期用 `-X` 注入；独立使用（读不到 `VERSION`）时必须能退化成 `dev`，不能报错 |
 
-5. 生效：`task install` → `task -d apps/backend dev:once`（单次启动，确认能连库、能起来）→
+5. 生效：`task install` → `task dev -- backend --once`（单次启动，确认能连库、能起来）→
    `task test`、`task lint`、`task build` 全绿。
 
 **前端不需要改**，除非新后端换了端口或改了契约形状。

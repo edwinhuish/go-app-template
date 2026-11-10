@@ -4,9 +4,9 @@
 # 不依赖仓库根再维护一份基础设施编排。
 #
 # 用法（都不需要手动敲 docker 命令，dev 任务会自己拉起）：
-#   task dev:pg       # 拉起 postgres + redis，再以 config.postgres.yaml 热重载
-#   task dev:mysql    # 拉起 mysql + redis，再以 config.mysql.yaml 热重载
-#   task dev:down     # 停掉上面拉起的容器（数据卷保留）
+#   task dev -- --db=pg     # 拉起 postgres + redis，再以 config.postgres.yaml 热重载
+#   task dev -- --db=mysql  # 拉起 mysql + redis，再以 config.mysql.yaml 热重载
+#   task dev -- --down      # 停掉上面拉起的容器（数据卷保留）
 #
 # 默认的 task dev 走 SQLite + 内存缓存，不碰这里的任何容器。
 

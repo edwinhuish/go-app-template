@@ -19,10 +19,12 @@
 #   2. 以 -- 开头的参数是命令自己的开关，必须写在 app 名之后（没有 app 名时就是第一个）。
 #
 # 命令与开关：
-#   install [--ci]     装依赖。--ci 走严格模式：子项目优先执行 install:ci
-#                      （前端锁文件与 package.json 不一致时直接失败），没有就退回 install
+#   install [--ci]     装依赖。--ci 会原样传给子项目的 install 任务（严格模式：前端按
+#                      锁文件安装、锁文件与 package.json 不一致时直接失败）
 #   lint [--no-fmt]    默认先 fmt 再 lint；--no-fmt 只检查不格式化
-#   build / clean / dev / fmt / test
+#   dev                不带 app 名时并行起所有端、不接受开关；点名某个 app 时，开关原样
+#                      转给它的 dev（如 task dev -- backend --db=pg --once）
+#   build / clean / fmt / test
 #                      不接受开关；点名某个 app 时只跑它
 #   release            框架级的发版动作，不接受 app 名；先跑子项目的 release（若有），
 #                      再走本地发版流程
@@ -119,29 +121,51 @@ pick_task() {
 #
 # --optional：候选任务都没定义时直接跳过（给「默认先 fmt」这种附加步骤用）。
 # 不点名的全局模式下本来就跳过；点名了某个 app 时，缺主任务是错误、缺附加步骤才跳过。
+#
+# `--` 之后是这个任务自己的开关，原样转给子项目任务（`task install -- backend --ci`）。
 run_serial() {
   local optional=false
-  if [ "${1:-}" = "--optional" ]; then
-    optional=true
-    shift
-  fi
+  local -a candidates=() child_args=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --optional)
+        optional=true
+        shift
+        ;;
+      --)
+        shift
+        while [ $# -gt 0 ]; do
+          child_args+=("$1")
+          shift
+        done
+        ;;
+      *)
+        candidates+=("$1")
+        shift
+        ;;
+    esac
+  done
 
   local proj list name rc
   for proj in $(targets); do
     list="$(project_tasks "$proj")" || return $?
-    if name="$(pick_task "$list" "$@")"; then
+    if name="$(pick_task "$list" "${candidates[@]}")"; then
       info "$proj: $name"
-      if task -d "$APPS/$proj" "$name"; then
-        :
-      else
+      if [ "${#child_args[@]}" -gt 0 ]; then
+        task -d "$APPS/$proj" "$name" -- "${child_args[@]}"
         rc=$?
+      else
+        task -d "$APPS/$proj" "$name"
+        rc=$?
+      fi
+      if [ "$rc" -ne 0 ]; then
         printf '✗ apps/%s 的 %s 失败（后续子项目未执行）\n' "$proj" "$name" >&2
         return "$rc"
       fi
     elif [ "$optional" = true ] || [ -z "$APP" ]; then
-      info "$proj: 未定义 $1，跳过"
+      info "$proj: 未定义 ${candidates[0]}，跳过"
     else
-      printf '✗ apps/%s 没有定义 %s\n' "$proj" "$*" >&2
+      printf '✗ apps/%s 没有定义 %s\n' "$proj" "${candidates[*]}" >&2
       return 1
     fi
   done
@@ -234,9 +258,18 @@ shift
 # 根 Taskfile 用 "$TASK_ARGS" 把整串 CLI_ARGS 当成一个参数传进来
 # （`task install -- backend --ci` 到这里是 "backend --ci" 一段），本地调试时又是一段一段的。
 # 统一按空白重新切开：这里只认 app 名与 --xxx 开关，两者都不含空格，拆分不会产生歧义。
+#
+# 拆完还要剥掉包裹的引号：Task 会对 CLI_ARGS 里的每个参数做一遍 shell-quote，
+# 含 = 的参数会被单引号包住（`--db=pg` 到这一步是 `'--db=pg'`）。不剥的话，
+# 要么匹配不上开关，要么把带引号的怪字符串原样转给子项目再来一轮加引号。
 if [ $# -gt 0 ]; then
   read -r -a _args <<<"$*"
-  set -- "${_args[@]}"
+  set --
+  for _arg in "${_args[@]}"; do
+    _arg="${_arg#[\"\']}"
+    _arg="${_arg%[\"\']}"
+    set -- "$@" "$_arg"
+  done
 else
   set --
 fi
@@ -258,7 +291,9 @@ case "$COMMAND" in
     [ $# -le 1 ] || die "install 最多一个开关（--ci），收到：$*"
     case "${1:-}" in
       '') run_serial install ;;
-      --ci) run_serial install:ci install ;;
+      # --ci 原样转给子项目的 install：严格模式怎么实现由各端自己决定
+      # （前端是 --frozen-lockfile，后端是只下载不 tidy），根不替它们定义。
+      --ci) run_serial install -- --ci ;;
       *) die "install 只支持 --ci，收到：$1" ;;
     esac
     ;;
@@ -279,8 +314,15 @@ case "$COMMAND" in
     run_serial "$COMMAND"
     ;;
   dev)
-    [ $# -eq 0 ] || die "dev 不接受开关，收到：$1"
-    run_parallel dev
+    if [ -n "$APP" ]; then
+      # 点名了就只有一个端，"并行"退化成前台直跑；开关原样转给它的 dev
+      # （task dev -- backend --db=pg --once）。
+      run_parallel dev -- "$@"
+    else
+      # 全局模式没有统一的 dev 开关：--db=pg 这种只对后端有意义，转给前端就是错。
+      [ $# -eq 0 ] || die "dev 的开关要指名给哪个子项目，例如：task dev -- backend $1"
+      run_parallel dev
+    fi
     ;;
   release)
     [ -z "$APP" ] || die "release 是框架级的发版动作（改版本号、打 tag、推送），不接受 app 名；某一端要跟着发布，请在那一端定义 release 任务"

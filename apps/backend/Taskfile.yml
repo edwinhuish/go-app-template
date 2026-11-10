@@ -4,6 +4,8 @@ version: '3'
 # （`task -d apps/backend <任务>`），本地也可以直接在本目录跑 `task <任务>`。
 #
 # 工作目录就是 apps/backend，因此 go.mod、.air.toml、configs/ 的路径都相对于本目录。
+# 带开关的任务要把开关放在 `--` 之后（Task 自己的参数解析不接受裸 --xxx）：
+#   task dev -- --db=pg --once
 
 vars:
   BIN_DIR: bin
@@ -33,17 +35,35 @@ tasks:
       - task --list
 
   install:
-    desc: 下载 Go 依赖并整理 go.mod
+    desc: 下载 Go 依赖并整理 go.mod（-- --ci：只按 go.mod / go.sum 下载，不改它们）
+    # 开关用 env 传进来，不直接插值进 shell：值原样到达脚本，不会被二次解析。
+    env:
+      ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - go mod download
-      - go mod tidy
-
-  install:ci:
-    # 严格模式只下载、不 tidy：tidy 会改写 go.mod / go.sum，
-    # 在 CI / 发布流程里那等于悄悄改掉了锁文件。
-    desc: 只按 go.mod / go.sum 下载依赖，不修改它们（CI / 发布用）
-    cmds:
-      - go mod download
+      # 命令级 silent：这一段是脚本，回显整段没有信息量，有用的输出由脚本自己给。
+      - cmd: |
+          set -euf
+          # Task 会把 CLI_ARGS 里的每个参数 shell-quote 一遍（含 = 的会被单引号包住），
+          # 先剥掉包裹引号再比较。
+          arg="${ARGS:-}"
+          arg="${arg#[\"\']}"
+          arg="${arg%[\"\']}"
+          case "$arg" in
+            '')
+              go mod download
+              go mod tidy
+              ;;
+            --ci)
+              # 严格模式只下载不 tidy：tidy 会改写 go.mod / go.sum，
+              # 在 CI / 发布流程里那等于悄悄改掉了锁文件。
+              go mod download
+              ;;
+            *)
+              printf '✗ install 只支持 --ci，收到：%s\n' "$arg" >&2
+              exit 1
+              ;;
+          esac
+        silent: true
 
   build:
     desc: 编译到 bin/（版本号取根目录 VERSION，可用 APP_VERSION=1.2.3 覆盖）
@@ -52,45 +72,76 @@ tasks:
       - go build -trimpath -ldflags "-s -w -X main.version={{.APP_VERSION}} -X main.commit={{.COMMIT}} -X main.date={{.BUILD_DATE}}" -o {{.BIN_DIR}}/{{.APP_NAME}} ./cmd/server
 
   dev:
-    desc: 热重载启动（air 监听 *.go 变更 → 重新编译 → 自动重启；SQLite + 内存缓存，不依赖容器）
-    preconditions:
-      - sh: command -v air
-        msg: '未找到 air：先执行 task tool:air（或 go install github.com/air-verse/air@{{.AIR_VERSION}}）'
-    cmds:
-      - mkdir -p data
-      - air -c {{.AIR_CONFIG}}
-
-  dev:once:
-    desc: 单次启动、不监听变更（改启动流程 / 没有 air 时用）
-    cmds:
-      - mkdir -p data
-      - go run ./cmd/server -config {{.CONFIG_FILE}}
-
-  dev:pg:
-    # 容器由本任务自己拉起：换了数据库的开发环境需要什么，由这一端自己负责，
+    # 一个入口覆盖三件事：默认热重载、--db 换库、--once 单次、--down 收尾。
+    # 原先拆成 dev / dev:once / dev:pg / dev:mysql / dev:down 五条任务，
+    # 只是同一套启动流程的排列组合，各自记一遍迟早不一致。
+    #
+    # 容器由本任务自己拉起：换了数据库的开发环境需要什么，由这一端负责，
     # 不要求使用者先记得去仓库根跑一条 infra 命令。
-    desc: 以 PostgreSQL + Redis 热重载启动（自动拉起本端的 postgres / redis 容器）
-    preconditions:
-      - sh: command -v air
-        msg: '未找到 air：先执行 task tool:air'
+    desc: 开发启动（默认 SQLite + 内存缓存、air 热重载）；开关：--db=pg|mysql 换库并拉起容器、--once 单次运行不监听、--down 停掉拉起的容器
+    env:
+      ARGS: '{{.CLI_ARGS}}'
     cmds:
-      - docker compose -f {{.COMPOSE_FILE}} up -d --wait postgres redis
-      # `--` 之后的参数由 air 追加给被启动的二进制。
-      - air -c {{.AIR_CONFIG}} -- -config configs/config.postgres.yaml
+      - cmd: |
+          set -euf
 
-  dev:mysql:
-    desc: 以 MySQL + Redis 热重载启动（自动拉起本端的 mysql / redis 容器）
-    preconditions:
-      - sh: command -v air
-        msg: '未找到 air：先执行 task tool:air'
-    cmds:
-      - docker compose -f {{.COMPOSE_FILE}} --profile mysql up -d --wait mysql redis
-      - air -c {{.AIR_CONFIG}} -- -config configs/config.mysql.yaml
+          db=sqlite
+          once=false
+          down=false
+          # Task 会把每个参数 shell-quote 一遍（含 = 的 `--db=pg` 会被单引号包住），
+          # 先剥掉包裹引号再匹配。
+          for raw in ${ARGS:-}; do
+            arg="${raw#[\"\']}"
+            arg="${arg%[\"\']}"
+            case "$arg" in
+              --db=pg | --db=postgres) db=pg ;;
+              --db=mysql) db=mysql ;;
+              --db=sqlite) db=sqlite ;;
+              --db=*)
+                printf '✗ --db 只支持 pg / mysql，收到：%s\n' "$arg" >&2
+                exit 1
+                ;;
+              --once) once=true ;;
+              --down) down=true ;;
+              *)
+                printf '✗ dev 不认识参数：%s（可用：--db=pg|mysql、--once、--down）\n' "$arg" >&2
+                exit 1
+                ;;
+            esac
+          done
 
-  dev:down:
-    desc: 停止 dev:pg / dev:mysql 拉起的容器（数据卷保留）
-    cmds:
-      - docker compose -f {{.COMPOSE_FILE}} --profile mysql down
+          # 先把容器的事办完：--down 只停容器，不启动服务。
+          if [ "$down" = true ]; then
+            docker compose -f {{.COMPOSE_FILE}} --profile mysql down
+            exit 0
+          fi
+
+          config={{.CONFIG_FILE}}
+          case "$db" in
+            pg)
+              config=configs/config.postgres.yaml
+              docker compose -f {{.COMPOSE_FILE}} up -d --wait postgres redis
+              ;;
+            mysql)
+              config=configs/config.mysql.yaml
+              docker compose -f {{.COMPOSE_FILE}} --profile mysql up -d --wait mysql redis
+              ;;
+          esac
+
+          mkdir -p data
+
+          # --once：跑一次就退，不监听变更，也不需要 air。
+          if [ "$once" = true ]; then
+            exec go run ./cmd/server -config "$config"
+          fi
+
+          if ! command -v air >/dev/null 2>&1; then
+            printf '✗ 未找到 air：先执行 task tool:air（或 go install github.com/air-verse/air@{{.AIR_VERSION}}）\n' >&2
+            exit 1
+          fi
+          # `--` 之后的参数由 air 追加给被启动的二进制。
+          exec air -c {{.AIR_CONFIG}} -- -config "$config"
+        silent: true
 
   tool:air:
     desc: 安装 air（版本锁在 vars.AIR_VERSION；走 go install，不进 go.mod）
