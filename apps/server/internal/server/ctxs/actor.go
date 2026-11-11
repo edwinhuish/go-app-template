@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"example.com/app/internal/model"
+	"example.com/app/internal/pkg/role"
 )
 
 // Principal 是鉴权通过后的身份信息，由 Auth 中间件写进请求上下文。
@@ -18,7 +18,9 @@ type Principal struct {
 }
 
 // IsAdmin 报告当前身份是否为管理员。
-func (p *Principal) IsAdmin() bool { return p.Role == model.RoleAdmin }
+//
+// 判断本身在 pkg/role：这里只要一个答案，不想因此认识 ORM。
+func (p *Principal) IsAdmin() bool { return role.SeesAllData(p.Role) }
 
 type actorKey struct{}
 

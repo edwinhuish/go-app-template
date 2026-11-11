@@ -7,6 +7,7 @@ import (
 
 	"example.com/app/internal/model"
 	"example.com/app/internal/pkg/errs"
+	"example.com/app/internal/pkg/role"
 	"example.com/app/internal/repository"
 	"example.com/app/internal/service"
 )
@@ -38,7 +39,7 @@ func (a *App) seed(
 		Username: username,
 		Password: hash,
 		Nickname: "管理员",
-		Role:     model.RoleAdmin,
+		Role:     role.Admin,
 		Status:   model.EnableStatusOn,
 	}
 	if err := users.Create(ctx, admin); err != nil {

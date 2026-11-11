@@ -40,7 +40,7 @@
 | 鉴权头 | `Authorization: Bearer <token>`；缺失或失效返回 401 |
 | 请求 ID | 中间件生成或透传，响应头 `X-Request-ID` 与响应体 `request_id` 一致 |
 | 字段命名 | json 一律 `snake_case` |
-| 时间 | `time.Time` 序列化为 RFC3339；业务日期用 `model.DateOnly`；令牌过期 `expires_at` 用 Unix 秒 |
+| 时间 | `time.Time` 序列化为 RFC3339；「业务日期」存本地日历日的 UTC 零点（不带时分秒）；令牌过期 `expires_at` 用 Unix 秒 |
 
 响应体只有一种形状：
 
@@ -136,8 +136,13 @@ OpenAPI 文档由路由注册同一处生成，不手写 yaml、不提交静态�
 ```
 handler ──> service ──> repository ──> model
               │             │
-              └──> infra    └──> pkg（errs / response / dialect，叶子包）
+              └──> infra    └──> pkg（errs / response / dialect / role，叶子包）
 ```
+
+`pkg` 里放的是**被多个层共用、又不属于任何一层**的纯判断与常量。角色就是这种：
+`pkg/role` 定义 `Admin`/`User` 与 `SeesAllData`，service 判数据范围、`ctxs.Principal.IsAdmin`
+判能不能进管理端接口，两边用同一份定义。别把它塞回 `model`——那会让 HTTP 层为了比较一个
+字符串去 import ORM，换持久化实现时 `ctxs` 也得跟着改。
 
 反向 import 一定是设计错了：要么这段逻辑放错了层，要么该用 Option 注入。
 
@@ -147,6 +152,8 @@ handler ──> service ──> repository ──> model
 - `service` 不 import HTTP 框架（Fuego / `net/http`）；要当前用户，用 `ctxs.ActorFrom(ctx)`。
   （`service` 会 import `ctxs`，所以 `ctxs` 里不许出现 `*http.Request` 一类的类型，否则
   `net/http` 会顺着这条边进到 service 的依赖图里。）
+- **`ctxs` 不 import `model`**：身份只带角色字符串，判断走 `pkg/role`。想图省事写
+  `p.Role == model.RoleAdmin`，就等于把整个持久化层拖进传输层。
 - **请求级数据只有一家**：`request_id` 与登录身份的 key、类型（`ctxs.Principal`）与读写
   都在 `internal/server/ctxs`。中间件只负责「算出来 + 放进去」，不定义 key、不提供读取函数。
   （`repository/tx.go` 的 `txKey` 是事务句柄，不出本包，不属于这一条。）
@@ -211,7 +218,7 @@ handler ──> service ──> repository ──> model
 | 主键 | `uint` 自增，`Base` 提供 |
 | 软删除 | `soft_delete` 的整数标记（0 = 未删），唯一索引把 `deleted_at` 排进去，实现「未删才唯一」 |
 | 表名 | 显式 `TableName()`；系统表 `sys_`、业务表 `biz_` |
-| 时间 | 一律 `time.Time`；「业务日期」用 `model.DateOnly` 截到日历日 |
+| 时间 | 一律 `time.Time`；「业务日期」存本地日历日的 UTC 零点——带时分秒会让「同一天」各自成一条，也容易在存成 UTC 后跨时区退到前一天 |
 | 分页 | 统一 `repository.Pagination` + `dto.PageResult`，参数归一化走 `PageQuery.Normalize` |
 | 乐观锁 | 更新时把 `updated_at` 放进 fields（键为 `repository.FieldUpdatedAt`），命中 0 行则 409 |
 | 事务 | 跨仓储写入用 `repository.TxManager.Transaction`（装配后是 `bootstrap.App.Tx`），仓储按 ctx 自动加入；回滚/提交/嵌套三条语义由 `internal/repository/tx_test.go` 钉住 |

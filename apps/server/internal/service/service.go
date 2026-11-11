@@ -9,15 +9,9 @@
 //   - 返回的错误一律是 pkg/errs 里的 *Error，handler 只负责翻译成 HTTP。
 package service
 
-import "log/slog"
-
 // Option 是各服务构造参数的通用形状，具体服务用各自的别名类型。
+//
+// 只声明形状，不提供「未指定 logger 时退回 slog.Default()」这类公共默认值：
+// 需要 logger 的服务自己写 `if s.log == nil`，不需要的服务就别留一个只赋值不读的字段。
+// 共享一个 helper 的结果是每个服务都挂上 logger，而其中一半从来没打过日志。
 type Option[T any] func(*T)
-
-// loggerOption 收敛「未指定 logger 时退回 slog 默认实例」这条默认值。
-func loggerOption(l *slog.Logger) *slog.Logger {
-	if l == nil {
-		return slog.Default()
-	}
-	return l
-}

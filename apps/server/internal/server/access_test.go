@@ -22,6 +22,7 @@ import (
 
 	"example.com/app/internal/dto"
 	"example.com/app/internal/model"
+	"example.com/app/internal/pkg/role"
 )
 
 // TestNoteDataIsolation 验证普通用户只能拿到自己的记录，越权一律 404。
@@ -50,7 +51,7 @@ func TestNoteDataIsolation(t *testing.T) {
 		Username: "alice",
 		Password: string(hash),
 		Nickname: "Alice",
-		Role:     model.RoleUser,
+		Role:     role.User,
 		Status:   model.EnableStatusOn,
 	}
 	if err := app.DB.Create(alice).Error; err != nil {

@@ -64,14 +64,12 @@
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 18 | `internal/service/service.go:18`、`infra/database/database.go:179`、`model/base.go:57`、`model/user.go:37`、`repository/base.go:190,199`、`server/router.go:69,72`、`service/user.go:29` | 删掉无调用方的导出：`loggerOption`、`Dialect`、`DateOnly`、`User.IsAdmin`、`Base.Count`、`Base.Paginate`、`OpenAPISpec`/`OpenAPIJSON`，以及只赋值不读的 `userService.log` | `go build` 通过；`grep` 确认无残留引用 |
 | 19 | `internal/infra/cache/redis.go:84` | `Incr` 不再按错误文案判断「非整数」，改用 `errors.As`/错误前缀等结构化判据 | 换 go-redis 版本后仍能命中 `ErrNotInteger`，集成测试可验证 |
 | 20 | `internal/infra/cache/memory.go:128,171,225` | 收窄锁粒度：`sweep`/`flush` 改为分批或写时复制，`Incr` 避免与其他键争同一把锁 | 有并发基准或至少一条多键并发用例，读写不被全表扫描长时间阻塞 |
 | 21 | `internal/repository/note.go:50` | `keyword` 进 SQL 前转义 `%` 与 `_`；注释里写明「前导通配不走索引」与「大小写敏感度随驱动不同」 | 传 `%` 不再命中全部；注释说明与实现一致 |
 | 22 | `internal/service/auth.go:184` | 登录成功后的 `Del(failKey)` 失败要打日志（必要时重试一次）：现在吞掉，用户可能莫名被锁到窗口过期 | 失败路径有日志，且不返回错误 |
 | 23 | `internal/config/config.go:220,233,242` | `max_lifetime`/`dial_timeout`/`save_interval` 增加正数校验：负值会让 `time.NewTicker` 直接 panic | 负值启动即报「必须大于 0」，与其它校验同一风格 |
-| 24 | `model/user.go:15,37`、`server/ctxs/actor.go:21`；`middleware/auth.go:60`、`server/hooks.go:20`；`router.go:304,339`；`dto/auth.go:14`、`dto/user.go:4` | 收敛重复：管理员判断只留一处出口；`RequestInfo` 只拼一次；失败 schema 不再「先生成再覆盖」；`UserInfo`/`UserItem` 合并或由同一映射函数产出 | 每种语义只有一个实现点，改动面一眼可数 |
-| 25 | `server/ctxs/actor.go:7` | `ctxs` 不再 import `model`（角色常量下沉到 `pkg` 或上移到 `ctxs` 自己的类型），让 HTTP 层不再依赖持久化模型 | `go list -deps ./internal/server/ctxs` 不含 `internal/model` |
+| 24 | `middleware/auth.go:60`、`server/hooks.go:20`；`router.go:304,339`；`dto/auth.go:14`、`dto/user.go:4` | 收敛重复：`RequestInfo` 只拼一次；失败 schema 不再「先生成再覆盖」；`UserInfo`/`UserItem` 合并或由同一映射函数产出 | 每种语义只有一个实现点，改动面一眼可数 |
 | 26 | `internal/repository/base.go:142` | 软删除标记冲突的 `time.Sleep(2ms)` 从请求路径里挪走（改重试策略或直接返回可判定的错误） | 仓储方法不再含 `Sleep` |
 | 27 | `internal/service/auth.go:44` | `dummyPasswordHash` 生成失败时要记日志并降级（例如阻塞启动），不要静默返回 nil 让时序对齐失效 | 生成失败有可见信号，用例可注入失败 |
 
@@ -89,7 +87,7 @@
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
 | 32 | `apps/server/Taskfile.yml:160`、`.github/workflows/ci.yml:55` | 测试加 `-race`；内存缓存与中间件都有并发路径，现在只跑串行单测 | 本地与 CI 都跑 `go test -race ./...`，不新增失败 |
-| 33 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数（本清单第 18 条就是它漏掉的） | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
+| 33 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数——上一批死代码就是它漏掉的 | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
 | 34 | `AGENTS.md:78-92`（第 3 节自检）、`docs/contracts/api.md:142-143` | 两条文档自检（码表行数、`apps/` 内不得外链）目前靠人手跑，改成 CI 的一步 | CI 里直接执行那两条 grep，失败即红 |
 
 ## 5. 已完成

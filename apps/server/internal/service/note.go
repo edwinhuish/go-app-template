@@ -7,6 +7,7 @@ import (
 	"example.com/app/internal/dto"
 	"example.com/app/internal/model"
 	"example.com/app/internal/pkg/errs"
+	"example.com/app/internal/pkg/role"
 	"example.com/app/internal/repository"
 	"example.com/app/internal/server/ctxs"
 )
@@ -57,7 +58,7 @@ func (s *noteService) List(
 	filter := repository.NoteFilter{Keyword: q.Keyword, OwnerID: q.OwnerID}
 	// 非管理员的数据范围由身份决定，不由 query 决定：否则传一个 owner_id
 	// 就能把「只能看自己的」这条规则降级成一句注释。管理员的 owner_id 仍当筛选条件。
-	if !model.RoleSeesAllData(actor.Role) {
+	if !role.SeesAllData(actor.Role) {
 		filter.OwnerID = actor.UserID
 	}
 
@@ -181,7 +182,7 @@ func (s *noteService) findVisible(ctx context.Context, id uint) (*model.Note, er
 	if err != nil {
 		return nil, err
 	}
-	if !model.RoleSeesAllData(actor.Role) && m.OwnerID != actor.UserID {
+	if !role.SeesAllData(actor.Role) && m.OwnerID != actor.UserID {
 		return nil, errs.ErrNotFound
 	}
 	return m, nil

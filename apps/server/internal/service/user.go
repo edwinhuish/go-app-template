@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"log/slog"
 
 	"example.com/app/internal/dto"
 	"example.com/app/internal/repository"
@@ -17,25 +16,15 @@ type UserService interface {
 }
 
 // UserOption 是账号服务的可选依赖。
-type UserOption = Option[userService]
-
-// WithUserLogger 注入 logger。
-func WithUserLogger(l *slog.Logger) UserOption {
-	return func(s *userService) { s.log = l }
-}
-
+// userService 没有 logger 字段：这一层只做查询与转换，没有需要记的运行时事件。
+// 「先留一个字段以后用」的结果是它永远没被用到，却让人以为这里会写日志。
 type userService struct {
 	users repository.UserRepository
-	log   *slog.Logger
 }
 
 // NewUserService 构造账号服务。
-func NewUserService(users repository.UserRepository, opts ...UserOption) UserService {
-	s := &userService{users: users, log: slog.Default()}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
+func NewUserService(users repository.UserRepository) UserService {
+	return &userService{users: users}
 }
 
 func (s *userService) List(ctx context.Context) ([]dto.UserItem, error) {

@@ -6,7 +6,6 @@
 package server
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -64,14 +63,6 @@ type Server struct {
 
 // Handler 返回可直接交给 http.Server 的处理器。
 func (s *Server) Handler() http.Handler { return s.handler }
-
-// OpenAPISpec 返回已生成的 OpenAPI 文档，供导出与测试使用。
-func (s *Server) OpenAPISpec() *openapi3.T { return s.fg.OpenAPI.Description() }
-
-// OpenAPIJSON 把文档序列化成 JSON。
-func (s *Server) OpenAPIJSON() ([]byte, error) {
-	return json.MarshalIndent(s.OpenAPISpec(), "", "  ")
-}
 
 // New 构建整套 HTTP 层。
 //

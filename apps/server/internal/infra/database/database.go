@@ -174,10 +174,6 @@ func Close(db *gorm.DB) error {
 	return sqlDB.Close()
 }
 
-// Dialect 返回连接实际使用的方言名，取值是 pkg/dialect 里的常量之一。
-// 写方言相关 SQL 时以它为准，不要在业务代码里判断配置。
-func Dialect(db *gorm.DB) string { return db.Dialector.Name() }
-
 func logLevel(level string) gormlogger.LogLevel {
 	switch strings.ToLower(level) {
 	case "silent":

@@ -87,7 +87,7 @@ func New(cfg *config.Config, version string) (*App, error) {
 	}, service.WithAuthLogger(log))
 
 	noteSvc := service.NewNoteService(noteRepo, service.WithNoteLogger(log))
-	userSvc := service.NewUserService(userRepo, service.WithUserLogger(log))
+	userSvc := service.NewUserService(userRepo)
 
 	// ---- HTTP 层 ----
 	// 缓存同时交给 HTTP 层做限流计数：登录接口按 IP 分桶，计数与会话共享同一套存储，

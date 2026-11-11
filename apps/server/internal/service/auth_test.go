@@ -19,6 +19,7 @@ import (
 	"example.com/app/internal/infra/cache"
 	"example.com/app/internal/model"
 	"example.com/app/internal/pkg/errs"
+	"example.com/app/internal/pkg/role"
 )
 
 const testSecret = "test-secret-0123456789abcdef"
@@ -120,7 +121,7 @@ func enabledUser(id uint) *model.User {
 		Base:     model.Base{ID: id},
 		Username: "user-" + strconv.FormatUint(uint64(id), 10),
 		Password: "not-a-real-hash",
-		Role:     model.RoleUser,
+		Role:     role.User,
 		Status:   model.EnableStatusOn,
 	}
 }
@@ -137,7 +138,7 @@ func signToken(t *testing.T, claims tokenClaims) string {
 func validClaims(userID uint, tokenID string) tokenClaims {
 	return tokenClaims{
 		UserID: userID,
-		Role:   model.RoleUser,
+		Role:   role.User,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:        tokenID,
 			Subject:   strconv.FormatUint(uint64(userID), 10),
@@ -173,7 +174,7 @@ func TestVerifyRejectsTokenWithoutExpiry(t *testing.T) {
 
 	claims := tokenClaims{
 		UserID: 7,
-		Role:   model.RoleUser,
+		Role:   role.User,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ID:       "jti-no-exp",
 			IssuedAt: jwt.NewNumericDate(time.Now()),
@@ -237,7 +238,7 @@ func TestVerifyRejectsDisabledUser(t *testing.T) {
 func TestVerifyTakesRoleFromDB(t *testing.T) {
 	svc, repo, c := newAuthFixture()
 	u := enabledUser(7)
-	u.Role = model.RoleAdmin
+	u.Role = role.Admin
 	repo.add(u)
 
 	token := signToken(t, validClaims(7, "jti-role")) // 令牌里写的是 user
@@ -249,8 +250,8 @@ func TestVerifyTakesRoleFromDB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if p.Role != model.RoleAdmin {
-		t.Errorf("角色 = %q，期望以库里的 %q 为准", p.Role, model.RoleAdmin)
+	if p.Role != role.Admin {
+		t.Errorf("角色 = %q，期望以库里的 %q 为准", p.Role, role.Admin)
 	}
 }
 

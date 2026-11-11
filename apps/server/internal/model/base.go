@@ -48,13 +48,3 @@ type Base struct {
 	// 序列化用 omitempty：未删除时值是 0 被省掉，只有已删除的行才带出这个字段。
 	DeletedAt DeletedAt `gorm:"softDelete:milli;not null;default:0;index" json:"deleted_at,omitempty"`
 }
-
-// DateOnly 把时间截到「业务日期」：取本地日历日，存成 UTC 零点。
-//
-// 生效日、业务日期都不是时间点。保留时分秒会带来两个问题：
-// 同一天录入的两条记录因为时分不同而各自成一条，唯一索引形同虚设；
-// 以及东八区录入的日期在存成 UTC 之后退到前一天。
-func DateOnly(t time.Time) time.Time {
-	y, m, d := t.Date()
-	return time.Date(y, m, d, 0, 0, 0, 0, time.UTC)
-}

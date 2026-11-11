@@ -186,21 +186,7 @@ func (r *Base[T]) Exists(ctx context.Context, scopes ...Scope) (bool, error) {
 	return len(found) > 0, nil
 }
 
-// Count 统计满足条件的记录数。
-func (r *Base[T]) Count(ctx context.Context, scopes ...Scope) (int64, error) {
-	var count int64
-	if err := r.conn(ctx).Model(new(T)).Scopes(scopes...).Count(&count).Error; err != nil {
-		return 0, fmt.Errorf("统计记录: %w", err)
-	}
-	return count, nil
-}
-
-// Paginate 返回当前页数据与总数（按 id 倒序）。
-func (r *Base[T]) Paginate(ctx context.Context, p Pagination, scopes ...Scope) ([]T, int64, error) {
-	return r.PaginateOrdered(ctx, p, "id DESC", scopes...)
-}
-
-// PaginateOrdered 与 Paginate 相同，但由调用方指定排序。
+// PaginateOrdered 返回当前页数据与总数，排序由调用方指定。
 //
 // 排序必须在这里传，不能写进 scope：gorm 合并 ORDER BY 时后写的会覆盖前面的，
 // 而 Paginate 内部的 Order 在 scopes 之后执行——写在 scope 里的排序会被静默吃掉，
