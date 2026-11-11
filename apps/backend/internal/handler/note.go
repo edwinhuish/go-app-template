@@ -35,17 +35,15 @@ func (h *NoteHandler) List(
 }
 
 // Get 处理 GET /notes/{id}。
-func (h *NoteHandler) Get(c fuego.ContextNoBody) (response.Envelope[*dto.NoteItem], error) {
+//
+// 只返回业务数据：信封、request_id 与状态码由 server 层的装饰器统一处理，
+// handler 不再需要知道这些（见 internal/server/decorate.go）。
+func (h *NoteHandler) Get(c fuego.ContextNoBody) (*dto.NoteItem, error) {
 	id, err := parseID(c.PathParam("id"))
 	if err != nil {
-		return fail[*dto.NoteItem](err)
+		return nil, err
 	}
-
-	res, err := h.notes.Get(c.Request().Context(), id)
-	if err != nil {
-		return fail[*dto.NoteItem](err)
-	}
-	return response.OK(requestID(c.Request()), res), nil
+	return h.notes.Get(c.Request().Context(), id)
 }
 
 // Create 处理 POST /notes。

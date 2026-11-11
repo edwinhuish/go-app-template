@@ -238,7 +238,7 @@ func registerRoutes(s *fuego.Server, h Handlers, auth service.AuthService) {
 		)...,
 	)
 
-	fuego.Get(s, "/api/v1/notes/{id}", h.Note.Get,
+	fuego.Get(s, "/api/v1/notes/{id}", ok(h.Note.Get),
 		slices.Concat(doc("getNote", "按 ID 查询示例记录", "note"), secured,
 			errorResponses(http.StatusNotFound))...,
 	)
