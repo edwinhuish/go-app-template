@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -217,6 +218,47 @@ func TestDocsRoutesFollowEnv(t *testing.T) {
 		if status, _ := rawGet(t, prod, path); status != http.StatusNotFound {
 			t.Errorf("生产环境 GET %s = %d，期望 404", path, status)
 		}
+	}
+}
+
+// TestBindingTagIsEnforced 验证 dto 上的 binding 约束真的在执行。
+//
+// 这是双轨设计里唯一会「静默失效」的地方：文档 schema 由 bindingSchemaCustomizer
+// 读 binding 标签生成，运行时校验由 validator 读同一个标签执行——但 validator
+// 默认的标签名是 validate，一旦 SetTagName("binding") 丢了，所有约束都会被跳过，
+// 接口照常返回 200，没有任何测试会失败。所以这里从 HTTP 入口打真实请求。
+func TestBindingTagIsEnforced(t *testing.T) {
+	srv := newTestServer(t)
+	token, _ := login(t, srv, "admin", "admin123")
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "标题为空", body: `{"title":""}`},
+		{name: "标题超长", body: fmt.Sprintf(`{"title":%q}`, strings.Repeat("x", 129))},
+		{name: "正文超长", body: fmt.Sprintf(`{"title":"ok","content":%q}`, strings.Repeat("x", 20001))},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			status, _, doc := call(t, srv, http.MethodPost, "/api/v1/notes", c.body, token)
+			if status != http.StatusBadRequest || doc["code"] != float64(40001) {
+				t.Fatalf("状态码/code = %d/%v，期望 400/40001（响应 %v）", status, doc["code"], doc)
+			}
+			// 文案必须是翻译过的中文：validator 的英文原句对使用者没有信息量。
+			msg, _ := doc["message"].(string)
+			if msg == "" || strings.Contains(msg, "validation") || strings.Contains(msg, "Key:") {
+				t.Errorf("message = %q，期望中文校验提示", msg)
+			}
+		})
+	}
+
+	// 登录入参同样受 binding 约束：缺密码是 400，而不是走到「密码错误」的 401。
+	status, _, doc := call(t, srv, http.MethodPost, "/api/v1/auth/login",
+		`{"username":"admin"}`, "")
+	if status != http.StatusBadRequest || doc["code"] != float64(40001) {
+		t.Errorf("登录缺密码 = %d / code %v，期望 400 / 40001", status, doc["code"])
 	}
 }
 
