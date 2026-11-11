@@ -111,10 +111,14 @@ func newFuegoServer(cfg *config.Config, log *slog.Logger, version string) *fuego
 			DisableResponse: true,
 		}),
 		// 拒绝未知字段会让 {"title":"x","extra":1} 变成 400，与改造前不一致。
+		// 注意这条只在 handler 调 c.Body() 时生效；本服务的解析走 bindJSON
+		// （要自己的中文文案），所以它是给「将来改用框架绑定」留的正确缺省。
 		fuego.WithDisallowUnknownFields(false),
-		// 请求体上限由 middleware.BodyLimit 统管：它能在 Content-Length 阶段就拒，
-		// 且发出的是既有的 413 形状。交给框架会得到另一套 400 文案。
-		fuego.WithMaxBodySize(0),
+		// 请求体上限：与 middleware.BodyLimit 用同一个值，而不是写 0。
+		// Fuego 把 0 解释成「不限制」（body() 里 only if MaxBodySize != 0 才包
+		// MaxBytesReader），而 HTTP 层真实生效的是 BodyLimit。两处写同一个数，
+		// 将来谁改成 c.Body() 都不会出现「框架不限制、中间件限制」的隐性差异。
+		fuego.WithMaxBodySize(bodyLimitBytes),
 		fuego.WithSerializer(serialize),
 		fuego.WithErrorSerializer(errorSerializer(log)),
 		// 所有已注册路由的响应对外只有 JSON 一种格式，包括带显式状态码的那几条。

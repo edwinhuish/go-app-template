@@ -203,6 +203,7 @@ func (c *Config) applyDefaults() {
 	if c.HTTP.ShutdownTimeout == 0 {
 		c.HTTP.ShutdownTimeout = 10
 	}
+	c.HTTP.CORSOrigins = normalizeList(c.HTTP.CORSOrigins)
 
 	if c.Database.Driver == "" {
 		c.Database.Driver = DriverSQLite
@@ -285,7 +286,7 @@ func (c *Config) applyEnv() {
 	setStr(&c.Log.Format, "APP_LOG_FORMAT")
 
 	if v := os.Getenv("APP_HTTP_CORS_ORIGINS"); v != "" {
-		c.HTTP.CORSOrigins = strings.Split(v, ",")
+		c.HTTP.CORSOrigins = normalizeList(strings.Split(v, ","))
 	}
 }
 
@@ -466,6 +467,20 @@ func (m MemoryConfig) PersistEnabled() bool {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// normalizeList 去掉空项与首尾空格。
+//
+// 跨域白名单是精确匹配：APP_HTTP_CORS_ORIGINS="https://a, https://b" 按逗号拆出来
+// 的第二项带着前导空格，永远命不中，表现为「浏览器里就是 CORS 报错，配置看着没错」。
+func normalizeList(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		if v = strings.TrimSpace(v); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 func setStr(dst *string, key string) {
 	if v := os.Getenv(key); v != "" {
