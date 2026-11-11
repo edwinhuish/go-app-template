@@ -76,8 +76,11 @@ func bindQuery(r *http.Request, dst any) error {
 
 // parseID 解析路径上的 id 参数。0 与非数字一律当参数错误，而不是去查一条不存在的记录：
 // 后者会返回 404，让人以为是数据没了。
+//
+// 位宽取 strconv.IntSize 而不是 64：在 32 位平台上 uint 装不下 2^32，
+// 直接强转会把 4294967297 截成 1，一次「查不存在的记录」变成「查到了别人的记录」。
 func parseID(raw string) (uint, error) {
-	id, err := strconv.ParseUint(raw, 10, 64)
+	id, err := strconv.ParseUint(raw, 10, strconv.IntSize)
 	if err != nil || id == 0 {
 		return 0, errs.BadRequest("无效的资源 ID")
 	}

@@ -4,6 +4,11 @@
 // dto 刻意不 import model：契约层与持久化层解耦，改表结构不会连带改接口。
 package dto
 
+import (
+	"strconv"
+	"strings"
+)
+
 const (
 	// DefaultPageSize 是未指定 page_size 时的每页条数。
 	DefaultPageSize = 20
@@ -11,11 +16,29 @@ const (
 	MaxPageSize = 200
 )
 
+// LenientInt 是查询参数里的整数：解析失败退化为 0，交给 Normalize 兜底。
+//
+// 为什么不让 handler 直接吞掉解码错误：gorilla/schema 遇到非数字会返回
+// ConversionError，整个请求变成 400，而对外承诺是「非法值归 1 / 归默认」。
+// 用 encoding.TextUnmarshaler 把容错收在类型上，Normalize 仍然只管范围。
+type LenientInt int
+
+// UnmarshalText 实现 encoding.TextUnmarshaler，永远不返回错误。
+func (n *LenientInt) UnmarshalText(text []byte) error {
+	v, err := strconv.Atoi(strings.TrimSpace(string(text)))
+	if err != nil {
+		*n = 0
+		return nil
+	}
+	*n = LenientInt(v)
+	return nil
+}
+
 // PageQuery 是通用分页参数，各列表查询结构体嵌入它即可。
 type PageQuery struct {
-	Page     int    `form:"page"`
-	PageSize int    `form:"page_size"`
-	Keyword  string `form:"keyword"`
+	Page     LenientInt `form:"page"`
+	PageSize LenientInt `form:"page_size"`
+	Keyword  string     `form:"keyword"`
 }
 
 // Normalize 修正非法分页参数，避免越界与全表扫描。
@@ -32,7 +55,7 @@ func (q *PageQuery) Normalize() {
 }
 
 // Offset 返回当前页偏移量。
-func (q PageQuery) Offset() int { return (q.Page - 1) * q.PageSize }
+func (q PageQuery) Offset() int { return int((q.Page - 1) * q.PageSize) }
 
 // PageResult 是分页响应体。
 type PageResult[T any] struct {

@@ -62,7 +62,7 @@ func (s *noteService) List(
 	}
 
 	list, total, err := s.notes.Paginate(ctx,
-		repository.Pagination{Page: q.Page, PageSize: q.PageSize}, filter)
+		repository.Pagination{Page: int(q.Page), PageSize: int(q.PageSize)}, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (s *noteService) List(
 	for i, m := range list {
 		items[i] = toNoteItem(&m)
 	}
-	return dto.NewPageResult(items, total, q.Page, q.PageSize), nil
+	return dto.NewPageResult(items, total, int(q.Page), int(q.PageSize)), nil
 }
 
 func (s *noteService) Get(ctx context.Context, id uint) (*dto.NoteItem, error) {

@@ -92,18 +92,22 @@ func takeOptimisticLock(fields map[string]any) (any, bool) {
 // 后提交的那个会被拒绝（409），而不是把前一个的改动静默盖掉。
 func (r *Base[T]) UpdateFields(ctx context.Context, id uint, fields map[string]any) error {
 	if len(fields) == 0 {
-		return nil
+		return errs.BadRequest("没有需要更新的字段")
 	}
 
 	q := r.conn(ctx).Model(new(T)).Where("id = ?", id)
 	expected, hasLock := takeOptimisticLock(fields)
 	if hasLock {
 		if len(fields) == 0 {
-			return nil
+			// 只传了版本号：没有要写的列。返回成功会让调用方以为改动生效了。
+			return errs.BadRequest("没有需要更新的字段")
 		}
 		q = q.Where("updated_at = ?", expected)
 	}
 
+	// 下面把 RowsAffected 当「命中的行数」用，所以 MySQL 的连接串必须带
+	// clientFoundRows（见 config.ResolvedDSN）。它默认返回的是「真正改动的行数」，
+	// SET 的值与库里相同时为 0，会被误判成 404 / 409，而 SQLite 与 Postgres 是 200。
 	res := q.Updates(fields)
 	if res.Error != nil {
 		return fmt.Errorf("更新记录 id=%d: %w", id, res.Error)
@@ -150,13 +154,16 @@ func (r *Base[T]) FindByID(ctx context.Context, id uint) (*T, error) {
 }
 
 // Exists 判断满足条件的记录是否存在。
+//
+// 不用 Count：Count 会忽略 Limit，实际扫的是全部命中行——一张十万行的表上
+// 「判断标题是否重复」也会被算成全表统计。判存在只需要取一行。
 func (r *Base[T]) Exists(ctx context.Context, scopes ...Scope) (bool, error) {
-	var count int64
-	err := r.conn(ctx).Model(new(T)).Scopes(scopes...).Limit(1).Count(&count).Error
+	var found []struct{ ID uint }
+	err := r.conn(ctx).Model(new(T)).Scopes(scopes...).Select("id").Limit(1).Find(&found).Error
 	if err != nil {
-		return false, fmt.Errorf("统计记录: %w", err)
+		return false, fmt.Errorf("查询记录是否存在: %w", err)
 	}
-	return count > 0, nil
+	return len(found) > 0, nil
 }
 
 // Count 统计满足条件的记录数。

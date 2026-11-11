@@ -370,6 +370,10 @@ func (d Database) ResolvedDSN() string {
 		query.Set("charset", "utf8mb4")
 		query.Set("parseTime", "True")
 		query.Set("loc", "Local")
+		// 让 UPDATE 返回「命中的行数」而不是「真正改动的行数」：
+		// 仓储的乐观锁与 404 判断都建立在 RowsAffected 上，而 MySQL 默认语义
+		// 是后者——值没变时返回 0，同一条 SQL 在 SQLite/Postgres 上是 200。
+		query.Set("clientFoundRows", "true")
 		for k, v := range d.Params {
 			query.Set(k, v)
 		}
