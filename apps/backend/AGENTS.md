@@ -119,16 +119,21 @@ handler ──> service ──> repository ──> model
 
 - `dto` 不 import `model`；互转写在 service 的 `toXxxItem` 里。
 - `service` 不 import HTTP 框架（Fuego / `net/http`）；要当前用户，用 `service.ActorFrom(ctx)`。
-- **中间件不定义 context key**：身份只存一份（`service.WithActor`），读取一律 `service.ActorFrom`。
-  中间件的职责是「验证 + 注入」，不提供读取函数，也不另存自己那份 key——存两份的后果是
+- **context key 只有两个家**：HTTP 层的数据（`request_id`，以及以后新增的同类）放
+  `internal/server/reqctx`；业务身份放 `service`。中间件只负责「算出来 + 放进去」，
+  不定义 key、不提供读取函数。
+- 身份只存一份（`service.WithActor`），读取一律 `service.ActorFrom`。存两份的后果是
   同一个请求有两个身份来源，忘写一个就表现为「身份凭空消失」，只能运行时才发现。
+- **`pkg/response` 不读 context**：它只按给定值拼响应体，`request_id` 由调用方从
+  `reqctx` 取来传进 `response.Fail` / `response.OK`。pkg 是叶子包，读了就得反向依赖 internal。
 - `repository` 不返回 dto；也不 import `service`。
 - `internal/pkg/*` 不 import `internal` 其它包（`pkg` 是叶子）。
 - **错误只走 `internal/pkg/errs`**：service 返回 `errs.BadRequest/ErrNotFound/...`，
   handler 直接 `return` 这个错误，由统一序列化器翻成响应；不要自己挑状态码、不要自己写 JSON。
 - **handler 只返回业务数据**：签名是 `(业务类型, error)`，函数体里不出现 `response.*`。
   信封与 `request_id` 由 `internal/server/decorate.go` 的 `ok` / `created` 在注册处统一包裹。
-  `response.Fail` 只给中间件用——它们拿不到 handler 的返回值，只能自己写响应。
+  `response.Fail` 只给中间件与输出钩子（`internal/server/hooks.go`）用——它们拿不到
+  handler 的返回值，只能自己写响应。
 - **每个对外函数带 `ctx context.Context`** 并一路传到底：超时与取消靠它传导到驱动层。
 - **软删除用 `model.DeletedAt`**，唯一索引把 `deleted_at` 排进去（`priority` 见 `model/user.go`）。
 - **跨表写入用 `repository.TxManager`**，不要在 service 里手写 `db.Begin()`。

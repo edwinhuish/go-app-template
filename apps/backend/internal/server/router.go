@@ -115,8 +115,8 @@ func newFuegoServer(cfg *config.Config, log *slog.Logger, version string) *fuego
 		// 请求体上限由 middleware.BodyLimit 统管：它能在 Content-Length 阶段就拒，
 		// 且发出的是既有的 413 形状。交给框架会得到另一套 400 文案。
 		fuego.WithMaxBodySize(0),
-		fuego.WithSerializer(response.Serialize),
-		fuego.WithErrorSerializer(response.ErrorSerializer(log)),
+		fuego.WithSerializer(serialize),
+		fuego.WithErrorSerializer(errorSerializer(log)),
 		// 所有已注册路由的响应对外只有 JSON 一种格式，包括带显式状态码的那几条。
 		// 挂成路由级而不是全局：404 兜底与 CORS 预检各有自己的 Content-Type。
 		fuego.WithRouteOptions(fuego.OptionMiddleware(middleware.ContentTypeJSON())),

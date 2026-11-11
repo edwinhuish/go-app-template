@@ -8,6 +8,7 @@ import (
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
+	"example.com/app/internal/server/reqctx"
 )
 
 // Recovery 捕获 panic，保证单个请求出错不会拖垮进程。
@@ -25,7 +26,7 @@ func Recovery(log *slog.Logger) func(http.Handler) http.Handler {
 						"path", r.URL.Path,
 						"stack", string(debug.Stack()),
 					)
-					response.Fail(w, r, log,
+					response.Fail(w, log, reqctx.Info(r),
 						errs.Wrap(fmt.Errorf("%v", rec), errs.CodeInternal, "服务器内部错误"))
 				}
 			}()

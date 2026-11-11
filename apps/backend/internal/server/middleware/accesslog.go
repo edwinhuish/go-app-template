@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"example.com/app/internal/pkg/response"
+	"example.com/app/internal/server/reqctx"
 )
 
 // statusWriter 记录响应状态码，供访问日志使用。
@@ -56,7 +56,7 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 				"status", status,
 				"latency_ms", time.Since(start).Milliseconds(),
 				"ip", clientIP(r),
-				"request_id", response.RequestIDFrom(r.Context()),
+				"request_id", reqctx.RequestID(r.Context()),
 			)
 		})
 	}

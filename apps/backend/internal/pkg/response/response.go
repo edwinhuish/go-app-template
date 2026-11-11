@@ -7,9 +7,9 @@
 // code != 0 时没有 data，前端按 code 分支处理；HTTP 状态码只由业务码推导
 // （取 code / 100 的前三位），任何一层都不要为某个错误单独挑状态码。
 //
-// 本包只依赖 net/http 与 pkg/errs：HTTP 框架换了它不用改。
-// 框架需要的两个钩子（成功序列化、错误序列化）以普通函数形式暴露在文件末尾，
-// 由 internal/server 接到具体框架上。
+// 本包只依赖 net/http 与 pkg/errs，且**不读请求上下文**：请求级数据（request_id）
+// 由调用方从 internal/server/reqctx 取来传进来。pkg 是叶子包，不 import internal
+// 下的其它包；把「存哪儿」的知识留在这里也会逼着它认识 HTTP 层的上下文。
 package response
 
 import (
@@ -22,6 +22,10 @@ import (
 
 	"example.com/app/internal/pkg/errs"
 )
+
+// contentTypeJSON 是唯一的响应类型。显式带 charset：消费方的解析代码与网关规则
+// 可能按这个字符串匹配，换实现不该改变它。
+const contentTypeJSON = "application/json; charset=utf-8"
 
 // Envelope 是统一响应体。
 //
@@ -44,6 +48,16 @@ type ErrorBody struct {
 	RequestID string `json:"request_id,omitempty"`
 }
 
+// RequestInfo 是写失败响应与记日志时需要的请求信息。
+//
+// 单独成为一个值而不是直接传 *http.Request：本包不该知道「请求 ID 存在 context
+// 的哪个键上」，那是 HTTP 层的事；也不该为了两个日志字段把整个请求搬进来。
+type RequestInfo struct {
+	Method    string
+	Path      string
+	RequestID string
+}
+
 // ErrResponseWritten 表示响应已经由调用方写出（典型是 413：中间件先写，
 // 解析层随后也会拿到一个错误）。错误序列化器见到它必须直接返回，
 // 否则会在已写出的响应后面再追加一段 JSON。
@@ -59,36 +73,27 @@ func Created[T any](requestID string, data T) Envelope[T] {
 	return Envelope[T]{Code: 0, Message: "created", Data: data, RequestID: requestID}
 }
 
-// ---- 请求 ID ----
+// WriteBody 只序列化并写响应体，不碰状态码。
 //
-// 放在 context 里而不是框架的上下文对象里：service 层只能拿到 context.Context，
-// 而「这条日志属于哪个请求」在两处都要用。
-
-type requestIDKey struct{}
-
-// WithRequestID 把请求 ID 挂到 context 上，由中间件调用。
-func WithRequestID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, requestIDKey{}, id)
+// 给「状态码已经由别人决定」的调用方用：框架在序列化之前就把显式状态码
+// （201 之类）写出去了，这里再写一次会触发 superfluous WriteHeader。
+func WriteBody(w http.ResponseWriter, v any) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", contentTypeJSON)
+	_, err = w.Write(b)
+	return err
 }
 
-// RequestIDFrom 取请求 ID，取不到返回空串（消费方按空值处理，不要 panic）。
-func RequestIDFrom(ctx context.Context) string {
-	id, _ := ctx.Value(requestIDKey{}).(string)
-	return id
-}
-
-// ---- 写出 ----
-
-// WriteJSON 以固定格式写响应。
-//
-// 显式设置 charset（application/json; charset=utf-8），与改造前的输出逐字一致：
-// 消费方的解析代码与网关规则可能按这个字符串匹配，换框架不该改变它。
+// WriteJSON 写状态码与响应体。
 func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Type", contentTypeJSON)
 	w.WriteHeader(status)
 	_, err = w.Write(b)
 	return err
@@ -98,7 +103,7 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 //
 // 折叠不等于丢掉：响应体只留一句「服务器内部错误」，真实原因必须进日志，
 // 否则线上只能靠复现去猜。业务错误（4xx）不记，避免用户输错参数刷成告警。
-func Fail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err error) {
+func Fail(w http.ResponseWriter, log *slog.Logger, req RequestInfo, err error) {
 	if errors.Is(err, ErrResponseWritten) {
 		return
 	}
@@ -115,12 +120,11 @@ func Fail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err error) {
 		e = errs.Wrap(err, errs.CodeInternal, "服务器内部错误")
 	}
 
-	requestID := RequestIDFrom(r.Context())
 	if e.Code.HTTPStatus() >= http.StatusInternalServerError {
 		log.Error("服务端错误",
-			"method", r.Method,
-			"path", r.URL.Path,
-			"request_id", requestID,
+			"method", req.Method,
+			"path", req.Path,
+			"request_id", req.RequestID,
 			"err", err,
 		)
 	}
@@ -128,7 +132,7 @@ func Fail(w http.ResponseWriter, r *http.Request, log *slog.Logger, err error) {
 	_ = WriteJSON(w, e.Code.HTTPStatus(), ErrorBody{
 		Code:      int(e.Code),
 		Message:   e.Msg,
-		RequestID: requestID,
+		RequestID: req.RequestID,
 	})
 }
 
@@ -170,27 +174,4 @@ func humanSize(n int64) string {
 		return strconv.FormatInt(n/mb, 10) + "MB"
 	}
 	return strconv.FormatInt(n/(1<<10), 10) + "KB"
-}
-
-// ---- 框架钩子 ----
-
-// Serialize 是成功响应的序列化器，签名与 Fuego 的 Sender 一致。
-//
-// 刻意不做内容协商：框架默认会按 Accept 头把 JSON 改成 HTML/XML/纯文本，
-// 那会让「所有接口只返回 JSON」的契约取决于请求头。
-func Serialize(w http.ResponseWriter, _ *http.Request, v any) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_, err = w.Write(b)
-	return err
-}
-
-// ErrorSerializer 是失败响应的序列化器，签名与 Fuego 的 ErrorSender 一致。
-func ErrorSerializer(log *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
-	return func(w http.ResponseWriter, r *http.Request, err error) {
-		Fail(w, r, log, err)
-	}
 }

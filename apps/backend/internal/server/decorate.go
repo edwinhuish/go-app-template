@@ -4,6 +4,7 @@ import (
 	"github.com/go-fuego/fuego"
 
 	"example.com/app/internal/pkg/response"
+	"example.com/app/internal/server/reqctx"
 )
 
 // 本文件是「handler 只返回业务数据」与「响应统一带信封」之间的唯一接缝。
@@ -29,7 +30,7 @@ func ok[B, P, T any](
 			// 的短路，都在 response.Fail 里做，这里不再判一遍。
 			return response.Envelope[T]{}, err
 		}
-		return response.OK(response.RequestIDFrom(c.Request().Context()), data), nil
+		return response.OK(reqctx.RequestID(c.Request().Context()), data), nil
 	}
 }
 
@@ -46,6 +47,6 @@ func created[B, P, T any](
 		if err != nil {
 			return response.Envelope[T]{}, err
 		}
-		return response.Created(response.RequestIDFrom(c.Request().Context()), data), nil
+		return response.Created(reqctx.RequestID(c.Request().Context()), data), nil
 	}
 }
