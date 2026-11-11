@@ -38,7 +38,8 @@ func (n *LenientInt) UnmarshalText(text []byte) error {
 type PageQuery struct {
 	Page     LenientInt `form:"page"`
 	PageSize LenientInt `form:"page_size"`
-	Keyword  string     `form:"keyword"`
+	// Keyword 是否使用由各资源自己决定；用到时按字面包含匹配，% 与 _ 不是通配符。
+	Keyword string `form:"keyword"`
 }
 
 // Normalize 修正非法分页参数，避免越界与全表扫描。

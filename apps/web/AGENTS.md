@@ -81,7 +81,8 @@ src/
 | `50001` | 500 | 服务端内部错误 | 通用错误提示 |
 | `50401` | 504 | 服务端处理超时 | 提示稍后重试 |
 
-分页：请求 `page`（从 1 开始，默认 1）、`page_size`（默认 20，上限 200）、可选 `keyword`；
+分页：请求 `page`（从 1 开始，默认 1）、`page_size`（默认 20，上限 200）、可选 `keyword`
+（服务端按字面包含匹配，`%` 与 `_` 不是通配符，别在输入框里当通配符用）；
 响应 `{ "list": [], "total": 0, "page": 1, "page_size": 20 }`，`list` 空结果是 `[]` 而不是 `null`。
 对应 `types` 里的 `PageResult<T>` 与 `constants` 的 `DEFAULT_PAGE_SIZE`。
 

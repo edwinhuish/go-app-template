@@ -247,7 +247,7 @@ func registerRoutes(
 			[]fuego.RouteOption{
 				fuego.OptionQueryInt("page", "页码，从 1 开始；非数字或小于 1 均归 1"),
 				fuego.OptionQueryInt("page_size", "每页条数，默认 20；非数字归默认，超过 200 截断"),
-				fuego.OptionQuery("keyword", "标题关键字，空表示不过滤"),
+				fuego.OptionQuery("keyword", "标题关键字，空表示不过滤；按字面包含匹配，% 与 _ 不是通配符"),
 				fuego.OptionQueryInt("owner_id", "按创建者筛选，0 表示不过滤；非管理员只能看到自己的记录"),
 			},
 		)...,

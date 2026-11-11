@@ -46,8 +46,9 @@ func (r *noteRepository) Paginate(
 	// 换存储或加索引时只需要动这一个方法。
 	scopes := make([]Scope, 0, 2)
 	if f.Keyword != "" {
+		// 关键词按字面包含匹配：% 与 _ 由 likeContains 转义，不让用户的输入变成通配符。
 		scopes = append(scopes, func(db *gorm.DB) *gorm.DB {
-			return db.Where("title LIKE ?", "%"+f.Keyword+"%")
+			return db.Where(likeContainsCondition("title"), likeContains(f.Keyword))
 		})
 	}
 	if f.OwnerID != 0 {
