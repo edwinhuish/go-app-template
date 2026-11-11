@@ -164,6 +164,39 @@ func TestCORSOriginsNormalized(t *testing.T) {
 	}
 }
 
+// TestConfigTemplatesLoad 守住仓库里的四份配置模板本身能通过校验。
+//
+// 模板不参与编译，也不会被别的用例读到：新增一条生产校验之后，最容易漏的就是它们。
+// 漏了的表现是「代码全绿、拿 config.prod.yaml 部署时起不来」，而那通常是发版当下
+// 才发生的事。
+func TestConfigTemplatesLoad(t *testing.T) {
+	// 生产模板刻意把密钥留在环境变量里（模板本身不含秘密），这里补一个合法值。
+	t.Setenv("APP_JWT_SECRET", strings.Repeat("k", 32))
+
+	cases := []struct {
+		file   string
+		driver string // 空表示不校验驱动
+	}{
+		{file: "config.yaml", driver: DriverSQLite},
+		{file: "config.mysql.yaml", driver: DriverMySQL},
+		{file: "config.postgres.yaml", driver: DriverPostgres},
+		{file: "config.prod.yaml", driver: DriverPostgres},
+	}
+
+	for _, c := range cases {
+		t.Run(c.file, func(t *testing.T) {
+			cfg, err := Load(filepath.Join("..", "..", "configs", c.file))
+			if err != nil {
+				t.Fatalf("模板未通过校验: %v", err)
+			}
+			// 复制模板改名时最容易漏改驱动：文件名叫 mysql 却连 sqlite 不会报错。
+			if c.driver != "" && cfg.Database.Driver != c.driver {
+				t.Errorf("database.driver = %q，与文件名期望的 %q 不符", cfg.Database.Driver, c.driver)
+			}
+		})
+	}
+}
+
 // writeConfig 把内容写进临时目录，返回路径。
 // 用 t.TempDir() 而不是手写清理：测试结束自动删除，失败时也不会留垃圾。
 func writeConfig(t *testing.T, content string) string {
