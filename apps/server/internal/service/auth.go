@@ -205,15 +205,11 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Log
 
 	s.log.Info("用户登录", "user_id", user.ID, "username", user.Username)
 
+	info := toUserInfo(user)
 	return &dto.LoginResponse{
 		Token:     signed,
 		ExpiresAt: expireAt.Unix(),
-		User: &dto.UserInfo{
-			ID:       user.ID,
-			Username: user.Username,
-			Nickname: user.Nickname,
-			Role:     user.Role,
-		},
+		User:      &info,
 	}, nil
 }
 

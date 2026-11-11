@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"example.com/app/internal/dto"
 	"example.com/app/internal/pkg/role"
 )
 
@@ -21,6 +22,19 @@ type Principal struct {
 //
 // 判断本身在 pkg/role：这里只要一个答案，不想因此认识 ORM。
 func (p *Principal) IsAdmin() bool { return role.SeesAllData(p.Role) }
+
+// Info 把身份转成对外的账号信息，`GET /auth/profile` 直接返回它。
+//
+// 转换放在这里是为了让「账号信息长什么样」只有一份构造点：Profile 拿得到身份、
+// 拿不到账号模型，而登录响应走的是 model.User，两条来源的字段清单必须一致。
+func (p *Principal) Info() dto.UserInfo {
+	return dto.UserInfo{
+		ID:       p.UserID,
+		Username: p.Username,
+		Nickname: p.Nickname,
+		Role:     p.Role,
+	}
+}
 
 type actorKey struct{}
 

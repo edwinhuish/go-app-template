@@ -26,7 +26,6 @@
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
 | 1 | `internal/infra/cache/memory.go:128,171,225` | 收窄锁粒度：`sweep`/`flush` 改为分批或写时复制，`Incr` 避免与其他键争同一把锁 | 有并发基准或至少一条多键并发用例，读写不被全表扫描长时间阻塞 |
-| 2 | `middleware/auth.go`、`server/hooks.go`；`router.go`；`dto/auth.go`、`dto/user.go` | 收敛重复：`RequestInfo` 只拼一次；失败 schema 不再「先生成再覆盖」；`UserInfo`/`UserItem` 合并或由同一映射函数产出 | 每种语义只有一个实现点，改动面一眼可数 |
 
 ## 3. 已完成
 

@@ -57,10 +57,5 @@ func (h *AuthHandler) Profile(c fuego.ContextNoBody) (dto.UserInfo, error) {
 		return dto.UserInfo{}, errs.ErrUnauthorized
 	}
 
-	return dto.UserInfo{
-		ID:       p.UserID,
-		Username: p.Username,
-		Nickname: p.Nickname,
-		Role:     p.Role,
-	}, nil
+	return p.Info(), nil
 }

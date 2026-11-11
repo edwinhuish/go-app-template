@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"example.com/app/internal/dto"
+	"example.com/app/internal/model"
 	"example.com/app/internal/repository"
 )
 
@@ -34,14 +35,24 @@ func (s *userService) List(ctx context.Context) ([]dto.UserItem, error) {
 	}
 
 	items := make([]dto.UserItem, len(list))
-	for i, u := range list {
+	for i := range list {
 		items[i] = dto.UserItem{
-			ID:       u.ID,
-			Username: u.Username,
-			Nickname: u.Nickname,
-			Role:     u.Role,
-			Status:   int8(u.Status),
+			UserInfo: toUserInfo(&list[i]),
+			Status:   int8(list[i].Status),
 		}
 	}
 	return items, nil
+}
+
+// toUserInfo 是账号模型到对外形状的唯一映射，登录响应与账号列表都走这里。
+//
+// 放在 service 而不是 dto：dto 不 import model（对外形状不跟着持久化模型走），
+// 互转是这一层的活。两个调用点各写一遍的话，加字段时总有一处漏改。
+func toUserInfo(u *model.User) dto.UserInfo {
+	return dto.UserInfo{
+		ID:       u.ID,
+		Username: u.Username,
+		Nickname: u.Nickname,
+		Role:     u.Role,
+	}
 }
