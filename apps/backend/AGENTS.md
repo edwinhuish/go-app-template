@@ -119,11 +119,18 @@ handler ──> service ──> repository ──> model
 
 - `dto` 不 import `model`；互转写在 service 的 `toXxxItem` 里。
 - `service` 不 import HTTP 框架（Fuego / `net/http`）；要当前用户，用 `service.ActorFrom(ctx)`。
-- **context key 只有两个家**：HTTP 层的数据（`request_id`，以及以后新增的同类）放
-  `internal/server/ctxs`；业务身份放 `service`。中间件只负责「算出来 + 放进去」，
-  不定义 key、不提供读取函数。
-- 身份只存一份（`service.WithActor`），读取一律 `service.ActorFrom`。存两份的后果是
-  同一个请求有两个身份来源，忘写一个就表现为「身份凭空消失」，只能运行时才发现。
+  它现在会 import `ctxs`，而 `ctxs` 里有 `*http.Request` 的辅助函数，所以 `net/http` 会
+  间接进入依赖图——这不是把 HTTP 类型写进 service 签名的许可，service 的参数与返回值里
+  仍然不许出现 `net/http` 与 Fuego 的类型。
+- **请求级数据的 context key 只有一家**：`request_id` 与登录身份的 key、读写都在
+  `internal/server/ctxs`。中间件只负责「算出来 + 放进去」，不定义 key、不提供读取函数。
+  （`repository/tx.go` 的 `txKey` 是事务句柄，不出本包，不属于这一条。）
+- **身份的值类型留在 `service`**：`ctxs` 按 `any` 存取，`service.WithActor` /
+  `service.ActorFrom` 做类型收窄。反过来把 `Principal` 搬进 `ctxs` 会逼它 import
+  `service`，与 `service → ctxs` 成环。
+- 身份只存一份（`ctxs.WithActor`，业务代码经 `service.WithActor` 调用），读取一律
+  `service.ActorFrom`。存两份的后果是同一个请求有两个身份来源，忘写一个就表现为
+  「身份凭空消失」，只能运行时才发现。
 - **`pkg/response` 不读 context**：它只按给定值拼响应体，`request_id` 由调用方从
   `ctxs` 取来传进 `response.Fail` / `response.OK`。pkg 是叶子包，读了就得反向依赖 internal。
 - `repository` 不返回 dto；也不 import `service`。

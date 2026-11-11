@@ -11,10 +11,9 @@ import (
 
 // Auth 校验 Bearer 令牌，并把登录身份注入上下文。
 //
-// 本包只做「验证 + 注入」两件事，不定义 context key，也不提供读取函数。
-// 身份的唯一存储处是 service.WithActor：service 层的业务规则（谁能看全部数据、
-// 这条记录归谁）要读它，而本仓库不允许 service 反向 import server
-// （依赖只能 handler → service），所以存储必须落在 service 那一侧。
+// 本包只做「验证 + 注入」两件事，不定义 context key，也不提供读取函数：
+// key 与读写都在 ctxs（ctxs.WithActor / ctxs.Actor），类型化封装在 service
+// （service.WithActor / service.ActorFrom），中间件走后者。
 //
 // 读取由使用方各自负责：handler 用 service.ActorFrom，service 直接用 ActorFrom。
 // 中间件如果顺手再存一份自己的 key，同一个请求里就有两个身份来源，

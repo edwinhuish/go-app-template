@@ -5,11 +5,12 @@
 // import 它——pkg/response 是叶子包，handler 也不该认识中间件。集中在这里之后，
 // 读写双方都只依赖它，key 也只有一处定义。
 //
-// 业务身份**不在**这里：当前用户的唯一来源是 service.ActorFrom。因为 service 层的
-// 业务规则要读身份，而 service 不能反向 import server，所以它必须留在 service 那一侧。
+// 登录身份也在这里（见 actor.go）：key 与读写属于本包，值的类型属于 service，
+// 由 service.WithActor / service.ActorFrom 做类型化。这样 service 不必也不该
+// 在自己的包里再定义一份 key。
 //
-// 新增一类请求级数据时遵循同一条：HTTP 层的放这里，业务层的放各自的领域包，
-// 不要在中间件里就地定义 key。
+// 新增一类请求级数据时遵循同一条：key 与读写放这里，不要在中间件里就地定义 key；
+// 值的类型留在它真正所属的包，本包按 any 存取。
 package ctxs
 
 import (
