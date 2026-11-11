@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -50,6 +51,116 @@ func TestLoadEnvOverride(t *testing.T) {
 	}
 	if cfg.Log.Level != "debug" {
 		t.Errorf("log.level = %q，期望 debug", cfg.Log.Level)
+	}
+}
+
+// TestProdGuards 覆盖生产环境的安全默认值。
+//
+// 这些校验的价值在于「配置写错就拒绝启动」：env 少一个字母会让后面每一条生产
+// 校验都静默跳过，而那种错误在流水线里看不出来，只能等到线上才发现。
+func TestProdGuards(t *testing.T) {
+	const base = `
+app:
+  env: prod
+http:
+  mode: release
+database:
+  driver: sqlite
+cache:
+  driver: memory
+jwt:
+  secret: "0123456789abcdef0123456789abcdef"
+`
+
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{
+			name: "生产基线通过",
+			yaml: base,
+		},
+		{
+			// 写成 " Prod " 时必须仍按生产校验，而不是绕过。
+			name: "env 大小写与空格归一化",
+			yaml: strings.Replace(base, "env: prod", `env: " Prod "`, 1),
+		},
+		{
+			name:    "未知 env 拒绝启动",
+			yaml:    strings.Replace(base, "env: prod", "env: production", 1),
+			wantErr: "app.env",
+		},
+		{
+			name: "生产禁止静默降级为内存缓存",
+			yaml: strings.Replace(base, "  driver: memory",
+				"  driver: memory\n  fallback_to_memory: true", 1),
+			wantErr: "fallback_to_memory",
+		},
+		{
+			name: "生产禁止种子账号",
+			yaml: strings.Replace(base, "  driver: sqlite",
+				"  driver: sqlite\n  seed: true", 1),
+			wantErr: "database.seed",
+		},
+		{
+			// 生产不允许继承「本地容器没有证书」的 disable 兜底。
+			name: "Postgres 生产必须显式声明 sslmode",
+			yaml: strings.Replace(base, "  driver: sqlite",
+				"  driver: postgres\n  host: db\n  user: app\n  name: app", 1),
+			wantErr: "sslmode",
+		},
+		{
+			name: "生产密钥长度不足",
+			yaml: strings.Replace(base, `secret: "0123456789abcdef0123456789abcdef"`,
+				`secret: "short"`, 1),
+			wantErr: "32",
+		},
+		{
+			name:    "令牌有效期必须为正",
+			yaml:    base + "  expire: -1\n",
+			wantErr: "jwt.expire",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, c.yaml))
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("期望加载成功，实际报错: %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("期望报错包含 %q，实际加载成功", c.wantErr)
+			}
+			if !strings.Contains(err.Error(), c.wantErr) {
+				t.Errorf("错误信息 = %q，期望包含 %q", err, c.wantErr)
+			}
+		})
+	}
+}
+
+// TestCORSOriginsNormalized 验证环境变量里的白名单会被去掉空格与空项。
+//
+// 白名单是精确匹配，带空格的项永远命不中，而现象只是浏览器里一句 CORS 报错。
+func TestCORSOriginsNormalized(t *testing.T) {
+	t.Setenv("APP_HTTP_CORS_ORIGINS", " https://a.example.com , ,https://b.example.com ")
+
+	cfg, err := Load(writeConfig(t, "jwt:\n  secret: test-secret\n"))
+	if err != nil {
+		t.Fatalf("加载配置: %v", err)
+	}
+
+	want := []string{"https://a.example.com", "https://b.example.com"}
+	if len(cfg.HTTP.CORSOrigins) != len(want) {
+		t.Fatalf("cors_origins = %v，期望 %v", cfg.HTTP.CORSOrigins, want)
+	}
+	for i := range want {
+		if cfg.HTTP.CORSOrigins[i] != want[i] {
+			t.Errorf("cors_origins[%d] = %q，期望 %q", i, cfg.HTTP.CORSOrigins[i], want[i])
+		}
 	}
 }
 

@@ -13,13 +13,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"example.com/app/internal/bootstrap"
-	"example.com/app/internal/config"
 )
 
 // successKeys 是成功响应的顶层字段集合。
@@ -30,58 +25,6 @@ var (
 	successKeys = []string{"code", "message", "data", "request_id"}
 	errorKeys   = []string{"code", "message", "request_id"}
 )
-
-func newTestServer(t *testing.T) *httptest.Server {
-	t.Helper()
-
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "config.yaml")
-	cfgYAML := fmt.Sprintf(`
-app:
-  name: app
-  env: dev
-  seed_admin_username: admin
-  seed_admin_password: admin123
-http:
-  addr: ":0"
-  mode: debug
-database:
-  driver: sqlite
-  dsn: "file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
-  log_level: silent
-  auto_migrate: true
-  seed: true
-cache:
-  driver: memory
-  prefix: "test:"
-  memory:
-    persist: false
-log:
-  level: error
-  format: text
-jwt:
-  secret: "test-only-secret-0123456789abcdef"
-  expire: 1
-`, filepath.Join(dir, "app.db"))
-	if err := os.WriteFile(cfgPath, []byte(cfgYAML), 0o600); err != nil {
-		t.Fatalf("写测试配置: %v", err)
-	}
-
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		t.Fatalf("加载测试配置: %v", err)
-	}
-
-	app, err := bootstrap.New(cfg, "test")
-	if err != nil {
-		t.Fatalf("装配应用: %v", err)
-	}
-	t.Cleanup(app.Close)
-
-	srv := httptest.NewServer(app.Server.Handler())
-	t.Cleanup(srv.Close)
-	return srv
-}
 
 // call 发一次请求并解析响应体；body 为 nil 表示不带请求体。
 func call(t *testing.T, srv *httptest.Server, method, path, body, token string) (int, http.Header, map[string]any) {
