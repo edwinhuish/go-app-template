@@ -48,11 +48,21 @@ func NewNoteService(notes repository.NoteRepository, opts ...NoteOption) NoteSer
 func (s *noteService) List(
 	ctx context.Context, q dto.NoteListQuery,
 ) (*dto.PageResult[dto.NoteItem], error) {
+	actor, err := noteActor(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q.Normalize()
 
+	filter := repository.NoteFilter{Keyword: q.Keyword, OwnerID: q.OwnerID}
+	// 非管理员的数据范围由身份决定，不由 query 决定：否则传一个 owner_id
+	// 就能把「只能看自己的」这条规则降级成一句注释。管理员的 owner_id 仍当筛选条件。
+	if !model.RoleSeesAllData(actor.Role) {
+		filter.OwnerID = actor.UserID
+	}
+
 	list, total, err := s.notes.Paginate(ctx,
-		repository.Pagination{Page: q.Page, PageSize: q.PageSize},
-		repository.NoteFilter{Keyword: q.Keyword, OwnerID: q.OwnerID})
+		repository.Pagination{Page: q.Page, PageSize: q.PageSize}, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +75,7 @@ func (s *noteService) List(
 }
 
 func (s *noteService) Get(ctx context.Context, id uint) (*dto.NoteItem, error) {
-	m, err := s.notes.FindByID(ctx, id)
+	m, err := s.findVisible(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +86,11 @@ func (s *noteService) Get(ctx context.Context, id uint) (*dto.NoteItem, error) {
 func (s *noteService) Create(
 	ctx context.Context, req dto.NoteCreateRequest,
 ) (*dto.NoteItem, error) {
+	actor, err := noteActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// 预检重名是为了给出一句能定位的提示；真正的并发拦截靠数据库唯一索引
 	// （database 包把约束错误统一翻成了 409）。
 	exists, err := s.notes.ExistsByTitle(ctx, req.Title, 0)
@@ -86,11 +101,8 @@ func (s *noteService) Create(
 		return nil, errs.ErrConflict.WithMsg("标题已存在")
 	}
 
-	m := &model.Note{Title: req.Title, Content: req.Content}
-	// 创建者取自请求上下文；内部调用没有身份时留 0，由业务自行决定是否允许。
-	if actor, ok := ctxs.ActorFrom(ctx); ok {
-		m.OwnerID = actor.UserID
-	}
+	// 创建者只取自请求上下文，不接受入参：允许客户端指定 owner 等于允许代替别人建数据。
+	m := &model.Note{Title: req.Title, Content: req.Content, OwnerID: actor.UserID}
 
 	if err := s.notes.Create(ctx, m); err != nil {
 		return nil, err
@@ -104,7 +116,7 @@ func (s *noteService) Create(
 func (s *noteService) Update(
 	ctx context.Context, id uint, req dto.NoteUpdateRequest,
 ) (*dto.NoteItem, error) {
-	if _, err := s.notes.FindByID(ctx, id); err != nil {
+	if _, err := s.findVisible(ctx, id); err != nil {
 		return nil, err
 	}
 
@@ -139,7 +151,40 @@ func (s *noteService) Update(
 }
 
 func (s *noteService) Delete(ctx context.Context, id uint) error {
+	if _, err := s.findVisible(ctx, id); err != nil {
+		return err
+	}
 	return s.notes.DeleteByID(ctx, id)
+}
+
+// noteActor 取当前身份。示例实体是纯业务数据，没有身份就没有数据范围可算，
+// 所以这里 fail-closed：装配漏了鉴权中间件会表现为 401，而不是「看到全表」。
+func noteActor(ctx context.Context) (*ctxs.Principal, error) {
+	actor, ok := ctxs.ActorFrom(ctx)
+	if !ok {
+		return nil, errs.ErrUnauthorized
+	}
+	return actor, nil
+}
+
+// findVisible 读取记录并校验归属。管理员可见全部，其他角色只可见自己创建的。
+//
+// 越权时返回 404 而不是 403：403 等于确认「这条 id 确实存在，只是不归你」，
+// 连续试 id 就能数出别人有多少条数据。对调用方来说这两种情况的结论都是「没有」。
+func (s *noteService) findVisible(ctx context.Context, id uint) (*model.Note, error) {
+	actor, err := noteActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	m, err := s.notes.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if !model.RoleSeesAllData(actor.Role) && m.OwnerID != actor.UserID {
+		return nil, errs.ErrNotFound
+	}
+	return m, nil
 }
 
 // toNoteItem 把持久化模型转成对外契约。字段映射集中在一处，
