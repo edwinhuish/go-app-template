@@ -66,8 +66,10 @@ type App struct {
 
 // HTTP 是 HTTP 服务配置。
 type HTTP struct {
-	Addr        string   `yaml:"addr"`
-	Mode        string   `yaml:"mode"` // debug | release
+	Addr string `yaml:"addr"`
+	// Mode 取 debug | release。release（或 app.env=prod）时不注册 /openapi.json
+	// 与 /docs 这两条文档路由，生产对外接口集合因此与不带文档时一致。
+	Mode        string   `yaml:"mode"`
 	CORSOrigins []string `yaml:"cors_origins"`
 	// ShutdownTimeout 是优雅退出的等待秒数。
 	ShutdownTimeout int `yaml:"shutdown_timeout"`
