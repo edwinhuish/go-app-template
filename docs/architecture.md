@@ -15,7 +15,8 @@
 │       └── AGENTS.md      前端规范正本
 ├── docs/
 │   ├── architecture.md    本文件：跨端全景
-│   └── contracts/api.md   接口协议与错误码正本（两端共用）
+│   ├── contracts/api.md   接口协议与错误码正本（两端共用）
+│   └── TODO.md            整改待办：未完成的项与验收口径
 ├── scripts/               全局入口（task-entry.sh）与发版、发布流水线的脚本
 ├── Taskfile.yml           命令总入口：includes 提供 <子项目>:<命令>，8 个全局命令转调脚本
 └── VERSION                版本号正本
@@ -131,4 +132,5 @@ apps/backend        apps/frontend
 | 后端怎么改 | [`../apps/backend/AGENTS.md`](../apps/backend/AGENTS.md) |
 | 前端怎么改 | [`../apps/frontend/AGENTS.md`](../apps/frontend/AGENTS.md) |
 | 接口形状、错误码、分页、鉴权 | [`contracts/api.md`](contracts/api.md) |
+| 还没做什么、先修哪条 | [`TODO.md`](TODO.md) |
 | 改哪端、读哪份、命名规则、自治边界 | [`../AGENTS.md`](../AGENTS.md) |

@@ -110,7 +110,8 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 ├── AGENTS.md                    规范索引：改哪端读哪份 + 命名与维护规则
 ├── docs/
 │   ├── architecture.md          跨端全景（不写单端规范）
-│   └── contracts/api.md         接口协议与错误码正本（两端共用）
+│   ├── contracts/api.md         接口协议与错误码正本（两端共用）
+│   └── TODO.md                  整改待办（代码 + 文档）
 ├── .github/workflows/
 │   ├── ci.yml                   提交即跑的检查（编译、vet、gofmt、单测、前端类型检查）
 │   └── release.yml              发版流水线（tag 触发：编译、打包、发 Release、推镜像）
