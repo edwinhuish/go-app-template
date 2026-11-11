@@ -248,6 +248,18 @@ task build               # 产物到 bin/app-server，版本号构建期注入
 首次启动会自动建表并写入 `app.seed_admin_*` 那个账号；`data/` 下是 SQLite 与缓存快照，
 要推倒重来就删 `data/app.db*` 与 `data/cache.snapshot`。
 
+驱动相关的语义（MySQL 的 UPDATE 行数、软删除唯一索引、乐观锁时间精度）在 SQLite 上
+跑不出来，所以有 `internal/repository/integration_test.go`：默认跳过，起一个一次性容器
+再指定驱动即可（`APP_TEST_PORT` 对上映射端口，用户/库默认 `app`）：
+
+```bash
+docker run -d --name probe-mysql -p 13306:3306 \
+  -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=app \
+  -e MYSQL_USER=app -e MYSQL_PASSWORD=app mysql:8.4
+APP_TEST_DRIVER=mysql APP_TEST_PORT=13306 go test ./internal/repository -v
+docker rm -f probe-mysql         # 改成 postgres:17-alpine + 5432 即测 Postgres
+```
+
 改动后的连带检查：
 
 - 动了线格式（前缀、响应体、码表、分页字段）→ 更新第 1 节，并在提交信息里点名；
