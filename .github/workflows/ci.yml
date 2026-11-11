@@ -2,9 +2,7 @@
 #
 # 关键点：前端安装只认 pnpm-lock.yaml（--frozen-lockfile），
 # 锁文件和 package.json 对不上时 CI 直接红，而不是悄悄解析出新版本。
-#
-# 首次使用模板时仓库里还没有锁文件，先本地跑一次 task install 生成并提交它，
-# 否则 web 这一组会在安装步骤失败（这是有意的，不是配置问题）。
+# 锁文件在仓库里；改依赖要连它一起提交，只改 package.json 会让安装步骤直接失败。
 
 name: CI
 
@@ -86,3 +84,39 @@ jobs:
 
       - name: 构建
         run: pnpm run build
+
+  # 文档自检。这三条在本地靠人手跑，漏一次就是「文档与代码各说一套」，
+  # 而且没有任何编译错误会提醒——所以放进 CI。
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: 码表三处行数一致
+        run: |
+          files="docs/contracts/api.md apps/server/AGENTS.md apps/web/AGENTS.md"
+          counts=$(grep -c '^| `[0-9]' $files | awk -F: '{print $NF}' | sort -u)
+          if [ "$(printf '%s\n' "$counts" | wc -l)" -ne 1 ]; then
+            echo "码表行数不一致，三处（契约正本 / 后端规范 / 前端规范）必须同步："
+            grep -c '^| `[0-9]' $files || true
+            exit 1
+          fi
+
+      - name: apps/ 下的文档不得外链
+        run: |
+          if grep -rn '](\.\./' apps/ --exclude-dir=node_modules; then
+            echo "apps/ 下的文档出现了指向本目录之外的链接：端级文档必须自包含"
+            exit 1
+          fi
+
+      - name: apps/ 下的代码与配置不得逃出本目录
+        run: |
+          hits=$(grep -rn --exclude-dir=node_modules --exclude-dir=dist '\.\./\.\.' apps/ \
+            --include='*.go' --include='*.ts' --include='*.tsx' \
+            --include='*.yml' --include='*.yaml' --include='*.json' \
+            | grep -v 'Taskfile.yml:.*VERSION' || true)
+          if [ -n "$hits" ]; then
+            echo "$hits"
+            echo "apps/ 下出现了 ../.. 引用；唯一允许的是 Taskfile 读 ../../VERSION"
+            exit 1
+          fi
