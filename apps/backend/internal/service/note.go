@@ -8,6 +8,7 @@ import (
 	"example.com/app/internal/model"
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/repository"
+	"example.com/app/internal/server/ctxs"
 )
 
 // NoteService 是示例实体的业务接口。
@@ -87,7 +88,7 @@ func (s *noteService) Create(
 
 	m := &model.Note{Title: req.Title, Content: req.Content}
 	// 创建者取自请求上下文；内部调用没有身份时留 0，由业务自行决定是否允许。
-	if actor, ok := ActorFrom(ctx); ok {
+	if actor, ok := ctxs.ActorFrom(ctx); ok {
 		m.OwnerID = actor.UserID
 	}
 

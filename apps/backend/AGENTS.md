@@ -118,18 +118,15 @@ handler ──> service ──> repository ──> model
 ## 3. 硬性约束
 
 - `dto` 不 import `model`；互转写在 service 的 `toXxxItem` 里。
-- `service` 不 import HTTP 框架（Fuego / `net/http`）；要当前用户，用 `service.ActorFrom(ctx)`。
+- `service` 不 import HTTP 框架（Fuego / `net/http`）；要当前用户，用 `ctxs.ActorFrom(ctx)`。
   （`service` 会 import `ctxs`，所以 `ctxs` 里不许出现 `*http.Request` 一类的类型，否则
   `net/http` 会顺着这条边进到 service 的依赖图里。）
-- **请求级数据的 context key 只有一家**：`request_id` 与登录身份的 key、读写都在
-  `internal/server/ctxs`。中间件只负责「算出来 + 放进去」，不定义 key、不提供读取函数。
+- **请求级数据只有一家**：`request_id` 与登录身份的 key、类型（`ctxs.Principal`）与读写
+  都在 `internal/server/ctxs`。中间件只负责「算出来 + 放进去」，不定义 key、不提供读取函数。
   （`repository/tx.go` 的 `txKey` 是事务句柄，不出本包，不属于这一条。）
-- **身份的值类型留在 `service`**：`ctxs` 按 `any` 存取，`service.WithActor` /
-  `service.ActorFrom` 做类型收窄。反过来把 `Principal` 搬进 `ctxs` 会逼它 import
-  `service`，与 `service → ctxs` 成环。
-- 身份只存一份（`ctxs.WithActor`，业务代码经 `service.WithActor` 调用），读取一律
-  `service.ActorFrom`。存两份的后果是同一个请求有两个身份来源，忘写一个就表现为
-  「身份凭空消失」，只能运行时才发现。
+- 身份只存一份（`ctxs.WithActor`），读取一律 `ctxs.ActorFrom`。存两份的后果是同一个请求
+  有两个身份来源，忘写一个就表现为「身份凭空消失」，只能运行时才发现。
+  身份类型不在 `service` 里再定义一份：`ctxs` 也不能反过来 import `service`，会成环。
 - **`pkg/response` 不读 context**：它只按给定值拼响应体，`request_id` 由调用方从
   `ctxs` 取来传进 `response.Fail` / `response.OK`。pkg 是叶子包，读了就得反向依赖 internal。
 - `repository` 不返回 dto；也不 import `service`。

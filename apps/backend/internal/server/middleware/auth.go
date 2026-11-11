@@ -11,13 +11,9 @@ import (
 
 // Auth 校验 Bearer 令牌，并把登录身份注入上下文。
 //
-// 本包只做「验证 + 注入」两件事，不定义 context key，也不提供读取函数：
-// key 与读写都在 ctxs（ctxs.WithActor / ctxs.Actor），类型化封装在 service
-// （service.WithActor / service.ActorFrom），中间件走后者。
-//
-// 读取由使用方各自负责：handler 用 service.ActorFrom，service 直接用 ActorFrom。
-// 中间件如果顺手再存一份自己的 key，同一个请求里就有两个身份来源，
-// 忘写其中一个的表现是「身份凭空消失」——这类 bug 只能靠运行时发现。
+// 本包只做「验证 + 注入」两件事：key 与类型都在 ctxs（ctxs.WithActor / ctxs.ActorFrom），
+// 中间件不定义 key、也不提供读取函数。顺手再存一份自己的 key，同一个请求里就有两个
+// 身份来源，忘写其中一个的表现是「身份凭空消失」——这类 bug 只能靠运行时发现。
 func Auth(auth service.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,7 +29,7 @@ func Auth(auth service.AuthService) func(http.Handler) http.Handler {
 				return
 			}
 
-			next.ServeHTTP(w, r.WithContext(service.WithActor(r.Context(), p)))
+			next.ServeHTTP(w, r.WithContext(ctxs.WithActor(r.Context(), p)))
 		})
 	}
 }
@@ -45,7 +41,7 @@ func Auth(auth service.AuthService) func(http.Handler) http.Handler {
 func RequireAdmin() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p, ok := service.ActorFrom(r.Context())
+			p, ok := ctxs.ActorFrom(r.Context())
 			if !ok {
 				response.Fail(w, nil, reqInfo(r), errs.ErrUnauthorized)
 				return

@@ -15,9 +15,9 @@ import (
 
 	"example.com/app/internal/dto"
 	"example.com/app/internal/infra/cache"
-	"example.com/app/internal/model"
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/repository"
+	"example.com/app/internal/server/ctxs"
 )
 
 const (
@@ -46,24 +46,11 @@ type AuthConfig struct {
 	MaxLoginFail int
 }
 
-// Principal 是鉴权通过后的身份信息，由中间件注入请求上下文。
-type Principal struct {
-	UserID    uint
-	Username  string
-	Nickname  string
-	Role      string
-	TokenID   string
-	ExpiresAt time.Time
-}
-
-// IsAdmin 报告当前身份是否为管理员。
-func (p *Principal) IsAdmin() bool { return p.Role == model.RoleAdmin }
-
 // AuthService 定义登录、登出、令牌校验。
 type AuthService interface {
 	Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error)
 	Logout(ctx context.Context, tokenID string) error
-	Verify(ctx context.Context, token string) (*Principal, error)
+	Verify(ctx context.Context, token string) (*ctxs.Principal, error)
 	HashPassword(plain string) (string, error)
 }
 
@@ -192,7 +179,7 @@ func (s *authService) Logout(ctx context.Context, tokenID string) error {
 }
 
 // Verify 校验令牌签名与会话存在性，返回去掉了敏感字段的身份。
-func (s *authService) Verify(ctx context.Context, token string) (*Principal, error) {
+func (s *authService) Verify(ctx context.Context, token string) (*ctxs.Principal, error) {
 	var claims tokenClaims
 	parsed, err := jwt.ParseWithClaims(token, &claims, func(t *jwt.Token) (any, error) {
 		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -217,7 +204,7 @@ func (s *authService) Verify(ctx context.Context, token string) (*Principal, err
 		return nil, errs.Wrap(err, errs.CodeInternal, "校验会话失败")
 	}
 
-	p := &Principal{
+	p := &ctxs.Principal{
 		UserID:   claims.UserID,
 		Username: claims.Username,
 		Nickname: claims.Nickname,

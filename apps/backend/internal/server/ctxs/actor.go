@@ -1,22 +1,37 @@
 package ctxs
 
-import "context"
+import (
+	"context"
+	"time"
 
-// actorKey 是登录身份在请求上下文里的键。
-//
-// 值按 any 存取，类型化（*service.Principal）留在 service：本包 import service 会成环。
+	"example.com/app/internal/model"
+)
+
+// Principal 是鉴权通过后的身份信息，由 Auth 中间件写进请求上下文。
+type Principal struct {
+	UserID    uint
+	Username  string
+	Nickname  string
+	Role      string
+	TokenID   string
+	ExpiresAt time.Time
+}
+
+// IsAdmin 报告当前身份是否为管理员。
+func (p *Principal) IsAdmin() bool { return p.Role == model.RoleAdmin }
+
 type actorKey struct{}
 
 // WithActor 写入登录身份；传 nil 不写入。
-func WithActor(ctx context.Context, v any) context.Context {
-	if v == nil {
+func WithActor(ctx context.Context, p *Principal) context.Context {
+	if p == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, actorKey{}, v)
+	return context.WithValue(ctx, actorKey{}, p)
 }
 
-// Actor 取出登录身份；没有时 ok=false，调用方应当拒绝，而不是当作管理员。
-func Actor(ctx context.Context) (any, bool) {
-	v := ctx.Value(actorKey{})
-	return v, v != nil
+// ActorFrom 取出登录身份；没有时 ok=false，调用方应当拒绝，而不是当作管理员。
+func ActorFrom(ctx context.Context) (*Principal, bool) {
+	p, ok := ctx.Value(actorKey{}).(*Principal)
+	return p, ok && p != nil
 }
