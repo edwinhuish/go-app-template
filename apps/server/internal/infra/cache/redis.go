@@ -3,7 +3,6 @@ package cache
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -81,7 +80,11 @@ func (c *redisCache) Incr(ctx context.Context, key string, ttl time.Duration) (i
 		pipe.PExpire(ctx, fullKey, time.Duration(ms)*time.Millisecond)
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
-		if strings.Contains(err.Error(), "not an integer") {
+		// 判据交给 go-redis：HasErrorPrefix 会先 errors.As 剥开包装层，再去掉某些
+		// 兼容实现（KVRocks）多出来的 "ERR " 前缀，最后才比文案。
+		// 自己 strings.Contains(err.Error(), ...) 等于把库的内部文案当契约：
+		// 升级后文案一变，这里就静默退化成「非整数当作普通错误」。
+		if redis.HasErrorPrefix(err, "value is not an integer") {
 			return 0, ErrNotInteger
 		}
 		return 0, err

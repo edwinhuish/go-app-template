@@ -25,16 +25,15 @@
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 1 | `internal/infra/cache/redis.go:84` | `Incr` 不再按错误文案判断「非整数」，改用 `errors.As`/错误前缀等结构化判据 | 换 go-redis 版本后仍能命中 `ErrNotInteger`，集成测试可验证 |
-| 2 | `internal/infra/cache/memory.go:128,171,225` | 收窄锁粒度：`sweep`/`flush` 改为分批或写时复制，`Incr` 避免与其他键争同一把锁 | 有并发基准或至少一条多键并发用例，读写不被全表扫描长时间阻塞 |
-| 3 | `middleware/auth.go`、`server/hooks.go`；`router.go`；`dto/auth.go`、`dto/user.go` | 收敛重复：`RequestInfo` 只拼一次；失败 schema 不再「先生成再覆盖」；`UserInfo`/`UserItem` 合并或由同一映射函数产出 | 每种语义只有一个实现点，改动面一眼可数 |
-| 4 | `internal/repository/base.go:142` | 软删除标记冲突的 `time.Sleep(2ms)` 从请求路径里挪走（改重试策略或直接返回可判定的错误） | 仓储方法不再含 `Sleep` |
+| 1 | `internal/infra/cache/memory.go:128,171,225` | 收窄锁粒度：`sweep`/`flush` 改为分批或写时复制，`Incr` 避免与其他键争同一把锁 | 有并发基准或至少一条多键并发用例，读写不被全表扫描长时间阻塞 |
+| 2 | `middleware/auth.go`、`server/hooks.go`；`router.go`；`dto/auth.go`、`dto/user.go` | 收敛重复：`RequestInfo` 只拼一次；失败 schema 不再「先生成再覆盖」；`UserInfo`/`UserItem` 合并或由同一映射函数产出 | 每种语义只有一个实现点，改动面一眼可数 |
+| 3 | `internal/repository/base.go:142` | 软删除标记冲突的 `time.Sleep(2ms)` 从请求路径里挪走（改重试策略或直接返回可判定的错误） | 仓储方法不再含 `Sleep` |
 
 ## 2. 工具与流程
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 5 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数——上一批死代码就是它漏掉的 | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
+| 4 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数——上一批死代码就是它漏掉的 | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
 
 ## 3. 已完成
 
