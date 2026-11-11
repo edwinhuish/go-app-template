@@ -17,13 +17,13 @@ vars:
   STATICCHECK_VERSION: v0.8.2
   # 本端要用到的容器都在本目录里定义：容器属于本端的开发环境，不放在仓库根。
   COMPOSE_FILE: deployments/docker-compose.yml
-  # 版本号正本是仓库根目录的 VERSION，构建期注入：
+  # 版本号正本是仓库根目录的 VERSION.txt，构建期注入：
   # 产物因此能在任何目录用 -version 自证。命令行 task build APP_VERSION=1.2.3 可覆盖。
   #
   # 刻意不叫 VERSION：任务级变量会向上传给调用它的父 Taskfile，
   # 而根目录的 release 任务要用 VERSION 接收用户输入的版本号，同名会被覆盖。
   APP_VERSION:
-    sh: tr -d '[:space:]' < ../../VERSION 2>/dev/null || echo dev
+    sh: tr -d '[:space:]' < ../../VERSION.txt 2>/dev/null || echo dev
   COMMIT:
     sh: git rev-parse --short HEAD 2>/dev/null || echo none
   BUILD_DATE:
@@ -74,7 +74,7 @@ tasks:
         silent: true
 
   build:
-    desc: 编译到 bin/（版本号取根目录 VERSION，可用 APP_VERSION=1.2.3 覆盖）
+    desc: 编译到 bin/（版本号取根目录 VERSION.txt，可用 APP_VERSION=1.2.3 覆盖）
     cmds:
       - mkdir -p {{.BIN_DIR}}
       - go build -trimpath -ldflags "-s -w -X main.version={{.APP_VERSION}} -X main.commit={{.COMMIT}} -X main.date={{.BUILD_DATE}}" -o {{.BIN_DIR}}/{{.APP_NAME}} ./cmd/server

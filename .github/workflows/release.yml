@@ -108,7 +108,7 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/dist"
           out="$GITHUB_WORKSPACE/dist/${APP_NAME}_${TARGET_OS}_${{ matrix.suffix }}${{ matrix.ext }}"
           # 版本号走链接参数注入（与 apps/server/Taskfile.yml 注的是同一批变量），
-          # 产物因此能在任何目录用 -version 自证，不依赖旁边的 VERSION 文件。
+          # 产物因此能在任何目录用 -version 自证，不依赖旁边的 VERSION.txt 文件。
           CGO_ENABLED="$CGO_ENABLED" GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
             go build -trimpath \
               -ldflags "$LDFLAGS -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$BUILD_TIME" \

@@ -1,8 +1,0 @@
-{
-  // VERSION 没有扩展名，装了什么插件都可能来抢着认领它（当成 Dockerfile、
-  // 当成某个构建脚本的版本文件）。显式钉成 plaintext：打开时就是纯文本，
-  // 不会被加上语法校验、自动补全或格式化。
-  "files.associations": {
-    "VERSION": "plaintext"
-  }
-}

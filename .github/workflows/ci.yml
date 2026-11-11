@@ -118,9 +118,9 @@ jobs:
           hits=$(grep -rn --exclude-dir=node_modules --exclude-dir=dist '\.\./\.\.' apps/ \
             --include='*.go' --include='*.ts' --include='*.tsx' \
             --include='*.yml' --include='*.yaml' --include='*.json' \
-            | grep -v 'Taskfile.yml:.*VERSION' || true)
+            | grep -v 'Taskfile.yml:.*VERSION\.txt' || true)
           if [ -n "$hits" ]; then
             echo "$hits"
-            echo "apps/ 下出现了 ../.. 引用；唯一允许的是 Taskfile 读 ../../VERSION"
+            echo "apps/ 下出现了 ../.. 引用；唯一允许的是 Taskfile 读 ../../VERSION.txt"
             exit 1
           fi

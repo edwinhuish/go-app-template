@@ -116,7 +116,7 @@ rm -f apps/server/data/cache.snapshot   # 登录态与限流计数的落盘快�
 │   ├── release-previous-tag.sh  查找上一个版本标签（流水线用）
 │   └── release-notes.sh         生成 Release 正文（流水线用）
 ├── Taskfile.yml                 命令总入口：includes 给出 <子项目>:<命令>，8 个全局命令转调脚本
-└── VERSION                      版本号正本
+└── VERSION.txt                  版本号正本
 ```
 
 规范按端存放：`apps/server/AGENTS.md` 与 `apps/web/AGENTS.md` 各管一端，且**各自自包含**
@@ -246,7 +246,7 @@ task release -- 1.2.3 --dry-run          # 发版：第一个裸词是版本号
 
 ## 发版
 
-版本号正本是仓库根目录的 `VERSION`（一行数字），`apps/web/package.json` 的 `version`
+版本号正本是仓库根目录的 `VERSION.txt`（一行数字），`apps/web/package.json` 的 `version`
 跟着一起改。产物不读这个文件，而是**构建期注进去** —— 二进制要能在任何目录自证：
 
 ```
@@ -262,7 +262,7 @@ app-server 0.1.0
 |---|---|---|
 | 1（最高） | `-X main.version=…` 链接参数 | 发布流水线把 tag 名注进去；`docker build --build-arg VERSION=` 也走这条 |
 | 2 | `task -d apps/server build APP_VERSION=1.2.3` | 本地试打某个号 |
-| 3 | 根目录 `VERSION` | `task -d apps/server build` 没显式给号时的缺省值 |
+| 3 | 根目录 `VERSION.txt` | `task -d apps/server build` 没显式给号时的缺省值 |
 | 4（兜底） | 代码里的 `"dev"` | 裸 `go build` / air 热重载不带 ldflags，一眼看出不是发布产物 |
 
 ```bash
@@ -397,7 +397,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
    | 二进制名 | Taskfile 的 `APP_NAME`、`Dockerfile`、`.github/workflows/release.yml` 的 `APP_NAME` | 本文 `-version` 示例与 `docker build` 引用它 |
    | 热重载配置 | `.air.toml` 与 Taskfile 的 `AIR_CONFIG` | `task dev` 派发的 `dev` 任务走 `air -c .air.toml`；新工程不用 air 就改 `dev` 任务，别让根 `task dev` 直接挂掉 |
    | 接口契约 | 响应体、错误码、分页、鉴权头 | 必须满足 [`docs/contracts/api.md`](docs/contracts/api.md)。新服务自带另一套形状就是契约变更：先改契约，再改前端 |
-   | 版本号来源 | Taskfile 的 `APP_VERSION` | 框架约定根目录 `VERSION` 是正本，构建期用 `-X` 注入；独立使用（读不到 `VERSION`）时必须能退化成 `dev`，不能报错 |
+   | 版本号来源 | Taskfile 的 `APP_VERSION` | 框架约定根目录 `VERSION.txt` 是正本，构建期用 `-X` 注入；独立使用（读不到 `VERSION.txt`）时必须能退化成 `dev`，不能报错 |
 
 5. 生效：`task install` → `task server:dev -- --once`（单次启动，确认能连库、能起来）→
    `task test`、`task lint`、`task build` 全绿。
@@ -427,7 +427,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
 | `app_token` | `apps/web/src/constants/index.ts` | 前端令牌键（换项目名时一起换） |
 | `app-web` | `apps/web/package.json` 的 `name` | 前端包名 |
 | `app-postgres` / `app-mysql` / `app-redis` | `apps/server/deployments/docker-compose.yml` | 容器名与库名 |
-| `0.1.0` | `VERSION`、`apps/web/package.json` | 起始版本 |
+| `0.1.0` | `VERSION.txt`、`apps/web/package.json` | 起始版本 |
 | `https://app.example.com` | `configs/config.prod.yaml` 的 CORS | 你的域名 |
 | `biz_note` / `Note` / `/notes` | 示例模块（见下） | 真实业务实体 |
 

@@ -28,7 +28,7 @@ import (
 //
 //	go build -ldflags "-X main.version=0.1.0 -X main.commit=$(git rev-parse --short HEAD) -X main.date=$(date -u +%FT%TZ)"
 //
-// 为什么不在代码里读 VERSION 文件：产物要能在任何目录、任何机器上自证，
+// 为什么不在代码里读 VERSION.txt 文件：产物要能在任何目录、任何机器上自证，
 // 不该依赖旁边恰好放着一份文本；而 -X 只对「字面量初始化的 string 变量」可靠，
 // 换成函数返回值后会在 init 阶段把注进去的值静默覆盖掉。
 var (

@@ -74,7 +74,7 @@
 所以依赖方向只有一个：
 
 ```
-总框架（根 Taskfile.yml、scripts/、.github/workflows/、docs/、VERSION、.gitignore）
+总框架（根 Taskfile.yml、scripts/、.github/workflows/、docs/、VERSION.txt、.gitignore）
    │  只允许这一向：框架读取 / 调用 / 引用 apps
    ▼
 apps/<端>   ──✗──>  apps 下的其他子项目
@@ -103,7 +103,7 @@ apps/<端>   ──✗──>  apps 下的其他子项目
 
 | 位置 | 读什么 | 缺失时的行为 | 为什么允许 |
 |---|---|---|---|
-| `apps/server/Taskfile.yml` | `../../VERSION` | 退化 `dev`，构建照常 | 版本号正本是仓库根的 `VERSION`；它只当缺省值，不参与编译逻辑 |
+| `apps/server/Taskfile.yml` | `../../VERSION.txt` | 退化 `dev`，构建照常 | 版本号正本是仓库根的 `VERSION.txt`；它只当缺省值，不参与编译逻辑 |
 
 自检（在仓库根执行，CI 的 `docs` job 里也跑这两条，失败即红）：
 

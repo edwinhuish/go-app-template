@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# 发版脚本：问版本号 -> 同步 VERSION 与前端 package.json -> 提交并打 tag -> 问是否推送。
+# 发版脚本：问版本号 -> 同步 VERSION.txt 与前端 package.json -> 提交并打 tag -> 问是否推送。
 #
 # 由 `task release` 调用，参数通过环境变量传入：
 #   VERSION   指定版本号（空 = 交互询问，回车取当前版本 +1 patch）
@@ -21,7 +21,7 @@ REMOTE="${REMOTE:-origin}"
 PUSH="${PUSH:-ask}"
 DRY_RUN="${DRY_RUN:-false}"
 
-VERSION_FILE="$ROOT/VERSION"
+VERSION_FILE="$ROOT/VERSION.txt"
 PKG_FILE="$ROOT/apps/web/package.json"
 
 die() {

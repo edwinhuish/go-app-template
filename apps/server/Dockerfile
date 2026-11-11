@@ -13,7 +13,7 @@ RUN go mod download
 
 COPY . .
 # 版本号在构建期注入，与 task server:build 注的是同一批变量。
-# 构建上下文是本目录（拿不到仓库根目录的 VERSION），所以缺省落到 dev；
+# 构建上下文是本目录（拿不到仓库根目录的 VERSION.txt），所以缺省落到 dev；
 # 发布流水线传 tag 名，本地要打准版本就 --build-arg VERSION=...
 ARG VERSION=dev
 ARG COMMIT=none
