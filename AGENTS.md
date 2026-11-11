@@ -151,7 +151,7 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
    摘要没有。
 3. **代码锚点**：契约正本里的锚点表列了「契约要素 ↔ 后端实现 ↔ 前端实现」，
    改的时候逐行对号入座，不靠记忆找文件。
-4. **靠工具与计数兜底**：`task lint`（`go vet` + 前端 `tsc`）抓 `types` 与 `dto` 的漂移；
+4. **靠工具与计数兜底**：`task lint`（`go vet` + `staticcheck` + 前端 `tsc`）抓 `types` 与 `dto` 的漂移；
    码表行数三处应当一致，快速核对：
 
    ```bash
@@ -180,7 +180,7 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
 
 ```bash
 task fmt        # gofmt
-task lint       # go vet + 前端 tsc
+task lint       # go vet + staticcheck + 前端 tsc
 task test       # 后端单测（CI 里带 -race）
 task build      # 后端二进制 + 前端静态产物
 ```

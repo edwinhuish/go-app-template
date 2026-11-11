@@ -148,7 +148,7 @@
 3. **同一个提交里改前端**：`src/types/index.ts` 与对应 `src/api/xxx.ts`。
 4. **同步两端规范里的摘要**：`apps/server/AGENTS.md` 第 1 节、`apps/web/AGENTS.md` 第 2 节。
    摘要与外链无关，是各自文件里的内联副本，**必须手动跟上**——没有测试抓得到它。
-5. **自检**：`task lint`（`go vet` + 前端 `tsc`）。`types` 与 `dto` 对不上会在这里暴露；
+5. **自检**：`task lint`（`go vet` + `staticcheck` + 前端 `tsc`）。`types` 与 `dto` 对不上会在这里暴露；
    码表行数快速核对：`grep -c '^| `[0-9]' docs/contracts/api.md apps/*/AGENTS.md`，三个数字应当相等。
 6. **只在必要时扩展**：不要为「以后可能要用」预留字段，字段一旦上线就不能改名。
 

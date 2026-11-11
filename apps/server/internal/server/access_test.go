@@ -108,6 +108,9 @@ func TestNoteDataIsolation(t *testing.T) {
 	}
 
 	status, _, doc = call(t, srv, http.MethodGet, "/api/v1/notes", "", aliceToken)
+	if status != http.StatusOK {
+		t.Fatalf("普通用户列表的状态码 = %d，期望 200", status)
+	}
 	page, _ = doc["data"].(map[string]any)
 	if page["total"] != float64(1) {
 		t.Errorf("普通用户自己的列表 total = %v，期望 1", page["total"])

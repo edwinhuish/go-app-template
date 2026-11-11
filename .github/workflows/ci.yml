@@ -36,8 +36,12 @@ jobs:
       - name: 编译
         run: go build ./...
 
-      - name: 静态检查
+      - name: 静态检查（go vet）
         run: go vet ./...
+
+      # vet 查不出「写了却没人调用的包级函数」，那一层由 staticcheck 的 U1000 补。
+      - name: 静态检查（staticcheck）
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 
       # 格式漂移不影响构建，却会让编辑器每次打开都提示，久了就没人再看那条提示。
       - name: 格式检查

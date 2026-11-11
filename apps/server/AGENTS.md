@@ -275,7 +275,7 @@ task dev -- --db=mysql   # MySQL + Redis：同上
 task dev -- --once       # 单次启动、不监听（可与 --db 组合）
 task dev -- --down       # 停掉上面拉起的容器（数据卷保留）
 task fmt                 # gofmt
-task lint                # go vet
+task lint                # go vet + staticcheck（后者管「写了没人调用」这类死代码）
 task test                # 单元测试
 task build               # 产物到 bin/app-server，版本号构建期注入
 ```

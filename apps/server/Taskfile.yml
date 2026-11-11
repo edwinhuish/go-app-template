@@ -13,6 +13,8 @@ vars:
   CONFIG_FILE: configs/config.yaml
   AIR_VERSION: v1.67.4
   AIR_CONFIG: .air.toml
+  # staticcheck 只用 go run 拉，不进 go.mod：它是检查工具，不是运行时依赖。
+  STATICCHECK_VERSION: v0.8.2
   # 本端要用到的容器都在本目录里定义：容器属于本端的开发环境，不放在仓库根。
   COMPOSE_FILE: deployments/docker-compose.yml
   # 版本号正本是仓库根目录的 VERSION，构建期注入：
@@ -163,9 +165,12 @@ tasks:
       - go test -race ./... -count=1
 
   lint:
-    desc: 静态检查（go vet）
+    # go vet 查不出「写了却没人调用的包级函数」（U1000），那种死代码只能靠人眼扫。
+    # staticcheck 补的正是这一层；它比 vet 慢，但也只在 lint 里跑。
+    desc: 静态检查（go vet + staticcheck）
     cmds:
       - go vet ./...
+      - go run honnef.co/go/tools/cmd/staticcheck@{{.STATICCHECK_VERSION}} ./...
 
   fmt:
     desc: 格式化代码
