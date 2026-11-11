@@ -16,6 +16,18 @@ Go 后端 + React 管理端的 monorepo 模板：分层清晰、零依赖即可�
 > 它的唯一作用是让每条链路都有可运行的样板。接真实业务时按
 > [「占位内容」](#占位内容替换清单) 一节替换或删除。
 
+## 开始用这个模板
+
+这是一个 GitHub template repository，三种起步方式选一种：
+
+| 方式 | 做法 | 结果 |
+|---|---|---|
+| 网页 | 仓库页点 **Use this template → Create a new repository** | 新仓库，历史从一次提交开始 |
+| `gh` | `gh repo create <你的项目> --template edwinhuish/go-app-template --public --clone` | 同上，本地已 clone 好 |
+| 直接 clone | `git clone https://github.com/edwinhuish/go-app-template <你的项目>` | 保留模板的完整提交历史 |
+
+拿到之后第一件事是把占位名换掉，清单见 [「占位内容」](#占位内容替换清单)。
+
 ## 前置
 
 | 依赖 | 版本 | 说明 |
