@@ -120,12 +120,12 @@ handler ──> service ──> repository ──> model
 - `dto` 不 import `model`；互转写在 service 的 `toXxxItem` 里。
 - `service` 不 import HTTP 框架（Fuego / `net/http`）；要当前用户，用 `service.ActorFrom(ctx)`。
 - **context key 只有两个家**：HTTP 层的数据（`request_id`，以及以后新增的同类）放
-  `internal/server/reqctx`；业务身份放 `service`。中间件只负责「算出来 + 放进去」，
+  `internal/server/ctxs`；业务身份放 `service`。中间件只负责「算出来 + 放进去」，
   不定义 key、不提供读取函数。
 - 身份只存一份（`service.WithActor`），读取一律 `service.ActorFrom`。存两份的后果是
   同一个请求有两个身份来源，忘写一个就表现为「身份凭空消失」，只能运行时才发现。
 - **`pkg/response` 不读 context**：它只按给定值拼响应体，`request_id` 由调用方从
-  `reqctx` 取来传进 `response.Fail` / `response.OK`。pkg 是叶子包，读了就得反向依赖 internal。
+  `ctxs` 取来传进 `response.Fail` / `response.OK`。pkg 是叶子包，读了就得反向依赖 internal。
 - `repository` 不返回 dto；也不 import `service`。
 - `internal/pkg/*` 不 import `internal` 其它包（`pkg` 是叶子）。
 - **错误只走 `internal/pkg/errs`**：service 返回 `errs.BadRequest/ErrNotFound/...`，

@@ -5,7 +5,7 @@ import (
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
-	"example.com/app/internal/server/reqctx"
+	"example.com/app/internal/server/ctxs"
 	"example.com/app/internal/service"
 )
 
@@ -24,13 +24,13 @@ func Auth(auth service.AuthService) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractToken(r)
 			if token == "" {
-				response.Fail(w, nil, reqctx.Info(r), errs.ErrUnauthorized)
+				response.Fail(w, nil, ctxs.Info(r), errs.ErrUnauthorized)
 				return
 			}
 
 			p, err := auth.Verify(r.Context(), token)
 			if err != nil {
-				response.Fail(w, nil, reqctx.Info(r), err)
+				response.Fail(w, nil, ctxs.Info(r), err)
 				return
 			}
 
@@ -48,11 +48,11 @@ func RequireAdmin() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, ok := service.ActorFrom(r.Context())
 			if !ok {
-				response.Fail(w, nil, reqctx.Info(r), errs.ErrUnauthorized)
+				response.Fail(w, nil, ctxs.Info(r), errs.ErrUnauthorized)
 				return
 			}
 			if !p.IsAdmin() {
-				response.Fail(w, nil, reqctx.Info(r), errs.ErrForbidden)
+				response.Fail(w, nil, ctxs.Info(r), errs.ErrForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)

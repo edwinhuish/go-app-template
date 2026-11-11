@@ -8,7 +8,7 @@
 // （取 code / 100 的前三位），任何一层都不要为某个错误单独挑状态码。
 //
 // 本包只依赖 net/http 与 pkg/errs，且**不读请求上下文**：请求级数据（request_id）
-// 由调用方从 internal/server/reqctx 取来传进来。pkg 是叶子包，不 import internal
+// 由调用方从 internal/server/ctxs 取来传进来。pkg 是叶子包，不 import internal
 // 下的其它包；把「存哪儿」的知识留在这里也会逼着它认识 HTTP 层的上下文。
 package response
 

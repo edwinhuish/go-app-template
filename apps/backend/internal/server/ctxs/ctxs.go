@@ -1,4 +1,4 @@
-// Package reqctx 保存与单次请求绑定的 HTTP 层数据。
+// Package ctxs 保存与单次请求绑定的 HTTP 层数据。
 //
 // 为什么单独成一个包：这些数据既要在中间件里写（RequestID 生成、AccessLog 记录），
 // 又要在序列化与 handler 里读。放在任何一个「使用者」包里，另一个方向就得反过来
@@ -10,7 +10,7 @@
 //
 // 新增一类请求级数据时遵循同一条：HTTP 层的放这里，业务层的放各自的领域包，
 // 不要在中间件里就地定义 key。
-package reqctx
+package ctxs
 
 import (
 	"context"
