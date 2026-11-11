@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
@@ -65,10 +66,11 @@ func reqInfo(r *http.Request) response.RequestInfo {
 }
 
 func extractToken(r *http.Request) string {
-	const prefix = "Bearer "
-	v := r.Header.Get("Authorization")
-	if len(v) <= len(prefix) || v[:len(prefix)] != prefix {
+	// auth-scheme 大小写不敏感（RFC 7235）：只认 "Bearer " 会把 "bearer xxx"
+	// 判成未登录，而这类写法在各类 SDK 与代理里都出现过。
+	scheme, token, ok := strings.Cut(strings.TrimSpace(r.Header.Get("Authorization")), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
 		return ""
 	}
-	return v[len(prefix):]
+	return strings.TrimSpace(token)
 }

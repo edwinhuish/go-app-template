@@ -36,6 +36,19 @@ var errLoginTooManyFails = errs.New(errs.CodeForbidden, "登录失败次数过�
 // errBadCredentials 是账号不存在与密码错误的统一文案，避免账号枚举。
 var errBadCredentials = errs.New(errs.CodeUnauthorized, "用户名或密码错误")
 
+// dummyPasswordHash 只用于「账号不存在」时也消耗一次 bcrypt 的时间。
+//
+// 少了它，两条失败路径的耗时差两个数量级（bcrypt cost 10 约几十毫秒，查不到
+// 账号几乎立即返回），任何人都能按响应时间把用户名枚举出来 —— 文案统一了，
+// 时间没统一，等于白做。启动时算一次，不放在热路径上。
+var dummyPasswordHash = func() []byte {
+	h, err := bcrypt.GenerateFromPassword([]byte("timing-equalizer"), bcrypt.DefaultCost)
+	if err != nil {
+		return nil
+	}
+	return h
+}()
+
 // AuthConfig 是鉴权相关的可调参数。
 type AuthConfig struct {
 	// Secret 是 JWT 签名密钥，生产必须从环境变量注入。
@@ -97,22 +110,30 @@ func (s *authService) HashPassword(plain string) (string, error) {
 
 // Login 校验账号密码并签发令牌，同时把会话写进缓存（登出即失效）。
 //
-// 失败计数只决定「还能不能继续猜」，**不预先拒绝请求**：
-// 先看计数再校验密码的写法，会让任何人连错 5 次就把某个账号锁在门外 15 分钟——
-// 被锁的人手里握着正确密码，却什么也做不了。这里先校验密码，错了才计数。
+// 锁定在比对密码之前判：失败次数到上限就直接 403，不再继续尝试。上一版把计数
+// 只当「事后提示」——密码正确时永远放行，密码错误时照旧逐个比对，于是爆破速率
+// 一次都没被降下来，而文案却在承诺「15 分钟后再试」。
+//
+// 代价是任何人都能用 5 次错误把某个账号挡在门外。这是有意选择的取舍：要抗
+// 分布式爆破应该在入口按 IP 限流，而不是靠放宽这里的判断（那样等于没有锁定）。
 func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginResponse, error) {
 	failKey := loginFailPrefix + req.Username
 
+	if locked(ctx, s.sessions, failKey, s.cfg.MaxLoginFail) {
+		return nil, errLoginTooManyFails
+	}
+
 	user, err := s.users.FindByUsername(ctx, req.Username)
 	if err != nil {
-		s.markLoginFail(ctx, failKey)
-		if locked(ctx, s.sessions, failKey, s.cfg.MaxLoginFail) {
-			return nil, errLoginTooManyFails
+		if !errors.Is(err, errs.ErrNotFound) {
+			// 把「库挂了」折成「密码错」会让一次 500 变成满屏 401，运维只能看到
+			// 一片登录失败，排查方向直接跑偏。
+			return nil, errs.Wrap(err, errs.CodeInternal, "查询账号失败")
 		}
+		// 账号不存在也走一次 bcrypt，把两条失败路径的耗时拉平（见 dummyPasswordHash）。
+		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(req.Password))
+		s.markLoginFail(ctx, failKey)
 		return nil, errBadCredentials
-	}
-	if !user.IsEnabled() {
-		return nil, errs.New(errs.CodeForbidden, "账号已被禁用")
 	}
 	if bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)) != nil {
 		n := s.markLoginFail(ctx, failKey)
@@ -120,6 +141,12 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Log
 			return nil, errLoginTooManyFails
 		}
 		return nil, errBadCredentials
+	}
+
+	// 状态判断放在密码校验之后：放在前面的话，手里没有正确密码的人也能靠
+	// 「账号已被禁用」这句文案确认某个用户名存在。
+	if !user.IsEnabled() {
+		return nil, errs.New(errs.CodeForbidden, "账号已被禁用")
 	}
 
 	tokenID, err := newTokenID()
@@ -178,7 +205,11 @@ func (s *authService) Logout(ctx context.Context, tokenID string) error {
 	return s.sessions.Del(ctx, sessionKeyPrefix+tokenID)
 }
 
-// Verify 校验令牌签名与会话存在性，返回去掉了敏感字段的身份。
+// Verify 校验令牌签名、会话存在性与账号当前状态，返回去掉了敏感字段的身份。
+//
+// 身份字段（角色、昵称）以数据库为准而不是令牌自述：令牌在有效期内不会变，
+// 而账号可能刚被停用、刚被降级。只在令牌里取角色，等于把「改权限」变成
+// 「等 12 小时自然生效」。
 func (s *authService) Verify(ctx context.Context, token string) (*ctxs.Principal, error) {
 	var claims tokenClaims
 	parsed, err := jwt.ParseWithClaims(token, &claims, func(t *jwt.Token) (any, error) {
@@ -186,29 +217,53 @@ func (s *authService) Verify(ctx context.Context, token string) (*ctxs.Principal
 			return nil, fmt.Errorf("不支持的签名算法: %v", t.Header["alg"])
 		}
 		return []byte(s.cfg.Secret), nil
-	})
+	},
+		// 默认只校验「算法族」，HS256/HS384/HS512 都能过；这里钉死签发时用的那一个。
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+		// 没有 exp 的令牌在 v5 里默认不过期，等于一把永久钥匙。
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuedAt(),
+	)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
 			return nil, errs.ErrUnauthorized.WithMsg("登录已过期，请重新登录")
 		}
 		return nil, errs.ErrUnauthorized
 	}
-	if !parsed.Valid {
+	if !parsed.Valid || claims.ID == "" {
 		return nil, errs.ErrUnauthorized
 	}
 
-	if _, err := s.sessions.Get(ctx, sessionKeyPrefix+claims.ID); err != nil {
+	sessionUserID, err := s.sessions.Get(ctx, sessionKeyPrefix+claims.ID)
+	if err != nil {
 		if errors.Is(err, cache.ErrMiss) {
 			return nil, errs.ErrUnauthorized
 		}
 		return nil, errs.Wrap(err, errs.CodeInternal, "校验会话失败")
 	}
+	// 会话里记的是签发时的账号 id：必须与令牌自述一致，否则「拿着 A 的令牌
+	// 配上 B 的会话」这种拼装也能通过。
+	if sessionUserID != strconv.FormatUint(uint64(claims.UserID), 10) {
+		return nil, errs.ErrUnauthorized
+	}
+
+	user, err := s.users.FindByID(ctx, claims.UserID)
+	if err != nil {
+		if errors.Is(err, errs.ErrNotFound) {
+			// 账号被删（含软删）后令牌立即失效，不必等它过期。
+			return nil, errs.ErrUnauthorized
+		}
+		return nil, errs.Wrap(err, errs.CodeInternal, "校验账号状态失败")
+	}
+	if !user.IsEnabled() {
+		return nil, errs.New(errs.CodeForbidden, "账号已被禁用")
+	}
 
 	p := &ctxs.Principal{
-		UserID:   claims.UserID,
-		Username: claims.Username,
-		Nickname: claims.Nickname,
-		Role:     claims.Role,
+		UserID:   user.ID,
+		Username: user.Username,
+		Nickname: user.Nickname,
+		Role:     user.Role,
 		TokenID:  claims.ID,
 	}
 	if claims.ExpiresAt != nil {
