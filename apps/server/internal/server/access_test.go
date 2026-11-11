@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -119,6 +120,63 @@ func TestNoteDataIsolation(t *testing.T) {
 	page, _ = doc["data"].(map[string]any)
 	if page["total"] != float64(2) {
 		t.Errorf("管理员的列表 total = %v，期望 2", page["total"])
+	}
+}
+
+// TestNoteUpdateAndOptimisticLock 验证 PUT 的成功路径与乐观锁冲突。
+//
+// 这条路径此前没有被执行过：越权用例在 findVisible 就返回 404，根本走不到
+// UpdateFields，于是「带旧 updated_at 再改一次要 409」只写在注释里。
+func TestNoteUpdateAndOptimisticLock(t *testing.T) {
+	srv := newTestServer(t)
+	token, _ := login(t, srv, "admin", "admin123")
+
+	status, _, doc := call(t, srv, http.MethodPost, "/api/v1/notes",
+		`{"title":"v1","content":"c1"}`, token)
+	if status != http.StatusCreated {
+		t.Fatalf("新建状态码 = %d，期望 201（响应 %v）", status, doc)
+	}
+	created, _ := doc["data"].(map[string]any)
+	id, _ := created["id"].(float64)
+	path := fmt.Sprintf("/api/v1/notes/%.0f", id)
+
+	// 第一次更新不带版本，照常成功；响应里的 updated_at 就是下一次的期望版本。
+	status, _, doc = call(t, srv, http.MethodPut, path, `{"title":"v2","content":"c2"}`, token)
+	if status != http.StatusOK {
+		t.Fatalf("更新状态码 = %d，期望 200（响应 %v）", status, doc)
+	}
+	updated, _ := doc["data"].(map[string]any)
+	if updated["title"] != "v2" || updated["content"] != "c2" {
+		t.Errorf("更新后的内容 = %v / %v，期望 v2 / c2", updated["title"], updated["content"])
+	}
+	stale, _ := updated["updated_at"].(string)
+	if stale == "" {
+		t.Fatal("更新响应里没有 updated_at")
+	}
+
+	// updated_at 精度是毫秒：先让它走一格，下面那次「带版本的成功更新」才真的换掉版本号。
+	time.Sleep(5 * time.Millisecond)
+	status, _, doc = call(t, srv, http.MethodPut, path,
+		fmt.Sprintf(`{"title":"v3","updated_at":%q}`, stale), token)
+	if status != http.StatusOK {
+		t.Fatalf("带当前版本的更新 = %d，期望 200（响应 %v）", status, doc)
+	}
+
+	// 再用**旧的** updated_at 改一次：底稿已被上一次换掉，必须 409 而不是静默覆盖。
+	status, _, doc = call(t, srv, http.MethodPut, path,
+		fmt.Sprintf(`{"title":"v4","updated_at":%q}`, stale), token)
+	if status != http.StatusConflict || doc["code"] != float64(40901) {
+		t.Errorf("带旧版本的更新 = %d / code %v，期望 409 / 40901", status, doc["code"])
+	}
+
+	// 冲突时不能写进去任何东西。
+	status, _, doc = call(t, srv, http.MethodGet, path, "", token)
+	if status != http.StatusOK {
+		t.Fatalf("冲突后读回状态码 = %d，期望 200", status)
+	}
+	got, _ := doc["data"].(map[string]any)
+	if got["title"] != "v3" {
+		t.Errorf("冲突后标题 = %v，期望仍是 v3", got["title"])
 	}
 }
 

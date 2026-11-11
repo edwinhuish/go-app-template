@@ -78,10 +78,18 @@ func WriteJSON(w http.ResponseWriter, status int, v any) error {
 	return err
 }
 
-// Fail 输出错误响应：业务错误原样透出，非业务错误统一折叠为 500。
+// Fail 输出错误响应：4xx 的业务错误原样透出，5xx 统一折叠文案。
 //
 // 折叠不等于丢掉：响应体只留一句「服务器内部错误」，真实原因必须进日志，
 // 否则线上只能靠复现去猜。业务错误（4xx）不记，避免用户输错参数刷成告警。
+//
+// 折叠是**无条件**的，不看调用方写的文案：service 里 `errs.Wrap(err, CodeInternal,
+// "查询账号失败")` 这种写法很自然，但它会把内部语义（连表名、调用顺序都猜得出来）
+// 直接送到客户端，也与契约「真实原因只进日志」冲突。所以要折的是文案而不是错误码，
+// 码保留，前端仍按 code 分支。
+//
+// 504 不折：它的文案（「请求处理超时，请稍后重试」）是给调用方的动作提示，
+// 不含内部信息；只有映射到 500 的才换成统一文案。
 func Fail(w http.ResponseWriter, log *slog.Logger, req RequestInfo, err error) {
 	if errors.Is(err, ErrResponseWritten) {
 		return
@@ -96,10 +104,11 @@ func Fail(w http.ResponseWriter, log *slog.Logger, req RequestInfo, err error) {
 		// 超时不是「服务自己错了」，而是「这次没算完」：报 500 会让人去翻代码。
 		e = errs.ErrTimeout
 	case !ok:
-		e = errs.Wrap(err, errs.CodeInternal, "服务器内部错误")
+		e = errs.Wrap(err, errs.CodeInternal, errs.ErrInternal.Msg)
 	}
 
-	if e.Code.HTTPStatus() >= http.StatusInternalServerError {
+	status := e.Code.HTTPStatus()
+	if status >= http.StatusInternalServerError {
 		log.Error("服务端错误",
 			"method", req.Method,
 			"path", req.Path,
@@ -107,8 +116,11 @@ func Fail(w http.ResponseWriter, log *slog.Logger, req RequestInfo, err error) {
 			"err", err,
 		)
 	}
+	if status == http.StatusInternalServerError {
+		e = errs.New(e.Code, errs.ErrInternal.Msg)
+	}
 
-	_ = WriteJSON(w, e.Code.HTTPStatus(), ErrorBody{
+	_ = WriteJSON(w, status, ErrorBody{
 		Code:      int(e.Code),
 		Message:   e.Msg,
 		RequestID: req.RequestID,

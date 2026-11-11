@@ -171,7 +171,10 @@ handler ──> service ──> repository ──> model
   Fuego 的 Flow 之外，拿不到 handler 的返回值，只能自己写响应。
 - **每个对外函数带 `ctx context.Context`** 并一路传到底：超时与取消靠它传导到驱动层。
 - **软删除用 `model.DeletedAt`**，唯一索引把 `deleted_at` 排进去（`priority` 见 `model/user.go`）。
-- **跨表写入用 `repository.TxManager`**，不要在 service 里手写 `db.Begin()`。
+- **跨表写入用 `repository.TxManager`**，不要在 service 里手写 `db.Begin()`。装配产物是
+  `bootstrap.App.Tx`：接业务时把它当构造参数或选项传给需要多处落库的 service，
+  仓储方法会自动加入同一个事务（它们从 ctx 取连接）。示例服务都是单表写入，所以启动路径上
+  没有它的调用点——但它是**交出来的**，不是构造完就丢。
 
 ## 4. 新增一个模块的清单
 
@@ -207,7 +210,7 @@ handler ──> service ──> repository ──> model
 | 时间 | 一律 `time.Time`；「业务日期」用 `model.DateOnly` 截到日历日 |
 | 分页 | 统一 `repository.Pagination` + `dto.PageResult`，参数归一化走 `PageQuery.Normalize` |
 | 乐观锁 | 更新时把 `updated_at` 放进 fields（键为 `repository.FieldUpdatedAt`），命中 0 行则 409 |
-| 事务 | 跨仓储写入用 `repository.TxManager.Transaction`，仓储按 ctx 自动加入 |
+| 事务 | 跨仓储写入用 `repository.TxManager.Transaction`（装配后是 `bootstrap.App.Tx`），仓储按 ctx 自动加入；回滚/提交/嵌套三条语义由 `internal/repository/tx_test.go` 钉住 |
 | 多库支持 | 上层永远拿 `*gorm.DB`；驱动差异只在 `infra/database` 与 `pkg/dialect` 里消化 |
 
 「换存储不改代码」是这个工程的前提：`database.driver` 改成 `postgres` / `mysql` / `sqlite`，

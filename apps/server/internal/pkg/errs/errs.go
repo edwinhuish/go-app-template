@@ -116,6 +116,10 @@ var (
 	ErrConflict        = New(CodeConflict, "数据已存在或状态冲突")
 	ErrTooManyRequests = New(CodeTooManyRequests, "请求过于频繁，请稍后再试")
 	ErrTimeout         = New(CodeTimeout, "请求处理超时，请稍后重试")
+	// ErrInternal 的文案是**唯一**允许出现在 5xx 响应里的那句：具体原因进日志。
+	// response.Fail 会用它覆盖任何映射到 500 的文案，所以业务侧写「查询账号失败」
+	// 之类的细节也不会透到客户端。
+	ErrInternal = New(CodeInternal, "服务器内部错误")
 )
 
 // BadRequest 构造参数错误。
@@ -143,6 +147,6 @@ func FromStatus(status int) *Error {
 	case http.StatusGatewayTimeout:
 		return ErrTimeout
 	default:
-		return New(CodeInternal, "服务器内部错误")
+		return ErrInternal
 	}
 }

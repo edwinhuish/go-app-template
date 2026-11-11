@@ -29,7 +29,12 @@ type App struct {
 	Server *server.Server
 	DB     *gorm.DB
 	Cache  cache.Cache
-	Log    *slog.Logger
+	// Tx 把一次跨仓储的写入收进同一个事务。仓储从 ctx 取连接，所以只要在最外层
+	// 套一次 Transaction，里面所有仓储调用自动加入，不会漏掉某一条写。
+	//
+	// 示例服务都是单表写入，不需要它；它作为装配产物交出去，供接业务时使用。
+	Tx  repository.TxManager
+	Log *slog.Logger
 }
 
 // models 是全部需要同步结构的模型。
@@ -72,7 +77,7 @@ func New(cfg *config.Config, version string) (*App, error) {
 	noteRepo := repository.NewNoteRepository(db)
 	// 跨仓储的写入走它：ctx 里带事务，仓储按 ctx 自动加入。
 	// 示例服务是单表写入，用不到；接业务时把 txs 传给需要多处落库的服务。
-	_ = repository.NewTxManager(db)
+	txs := repository.NewTxManager(db)
 
 	// ---- 业务层 ----
 	authSvc := service.NewAuthService(userRepo, c, service.AuthConfig{
@@ -93,7 +98,7 @@ func New(cfg *config.Config, version string) (*App, error) {
 		User: handler.NewUserHandler(userSvc),
 	}, version)
 
-	app := &App{Config: cfg, Server: httpServer, DB: db, Cache: c, Log: log}
+	app := &App{Config: cfg, Server: httpServer, DB: db, Cache: c, Tx: txs, Log: log}
 
 	// 种子数据放在装配最后：它要往各表写数据，依赖上面全部就位。
 	if cfg.Database.Seed {
