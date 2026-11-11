@@ -119,9 +119,8 @@ handler ──> service ──> repository ──> model
 
 - `dto` 不 import `model`；互转写在 service 的 `toXxxItem` 里。
 - `service` 不 import HTTP 框架（Fuego / `net/http`）；要当前用户，用 `service.ActorFrom(ctx)`。
-  它现在会 import `ctxs`，而 `ctxs` 里有 `*http.Request` 的辅助函数，所以 `net/http` 会
-  间接进入依赖图——这不是把 HTTP 类型写进 service 签名的许可，service 的参数与返回值里
-  仍然不许出现 `net/http` 与 Fuego 的类型。
+  （`service` 会 import `ctxs`，所以 `ctxs` 里不许出现 `*http.Request` 一类的类型，否则
+  `net/http` 会顺着这条边进到 service 的依赖图里。）
 - **请求级数据的 context key 只有一家**：`request_id` 与登录身份的 key、读写都在
   `internal/server/ctxs`。中间件只负责「算出来 + 放进去」，不定义 key、不提供读取函数。
   （`repository/tx.go` 的 `txKey` 是事务句柄，不出本包，不属于这一条。）

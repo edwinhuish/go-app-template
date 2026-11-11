@@ -28,6 +28,10 @@ func serialize(w http.ResponseWriter, _ *http.Request, v any) error {
 // errorSerializer 输出失败响应。
 func errorSerializer(log *slog.Logger) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
-		response.Fail(w, log, ctxs.Info(r), err)
+		response.Fail(w, log, response.RequestInfo{
+			Method:    r.Method,
+			Path:      r.URL.Path,
+			RequestID: ctxs.RequestID(r.Context()),
+		}, err)
 	}
 }
