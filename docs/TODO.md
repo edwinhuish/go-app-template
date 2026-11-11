@@ -66,26 +66,25 @@
 |---|---|---|---|
 | 18 | `internal/infra/cache/redis.go:84` | `Incr` 不再按错误文案判断「非整数」，改用 `errors.As`/错误前缀等结构化判据 | 换 go-redis 版本后仍能命中 `ErrNotInteger`，集成测试可验证 |
 | 19 | `internal/infra/cache/memory.go:128,171,225` | 收窄锁粒度：`sweep`/`flush` 改为分批或写时复制，`Incr` 避免与其他键争同一把锁 | 有并发基准或至少一条多键并发用例，读写不被全表扫描长时间阻塞 |
-| 20 | `internal/config/config.go:220,233,242` | `max_lifetime`/`dial_timeout`/`save_interval` 增加正数校验：负值会让 `time.NewTicker` 直接 panic | 负值启动即报「必须大于 0」，与其它校验同一风格 |
-| 21 | `middleware/auth.go:60`、`server/hooks.go:20`；`router.go:304,339`；`dto/auth.go:14`、`dto/user.go:4` | 收敛重复：`RequestInfo` 只拼一次；失败 schema 不再「先生成再覆盖」；`UserInfo`/`UserItem` 合并或由同一映射函数产出 | 每种语义只有一个实现点，改动面一眼可数 |
-| 22 | `internal/repository/base.go:142` | 软删除标记冲突的 `time.Sleep(2ms)` 从请求路径里挪走（改重试策略或直接返回可判定的错误） | 仓储方法不再含 `Sleep` |
+| 20 | `middleware/auth.go:60`、`server/hooks.go:20`；`router.go:304,339`；`dto/auth.go:14`、`dto/user.go:4` | 收敛重复：`RequestInfo` 只拼一次；失败 schema 不再「先生成再覆盖」；`UserInfo`/`UserItem` 合并或由同一映射函数产出 | 每种语义只有一个实现点，改动面一眼可数 |
+| 21 | `internal/repository/base.go:142` | 软删除标记冲突的 `time.Sleep(2ms)` 从请求路径里挪走（改重试策略或直接返回可判定的错误） | 仓储方法不再含 `Sleep` |
 
 ### 文档
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 23 | `README.md:73` vs `apps/server/AGENTS.md:259-260` | 「推倒重来」的清理口径不一致：README 只删 `data/app.db*`，后端规范还要求删 `data/cache.snapshot` | 两处命令一致；保留快照会留下旧登录态与限流计数，要写明 |
-| 24 | `docs/architecture.md:100-107` | 该节声明「分层与目录职责只写在各自正本里，本文件不复述」，但 §4 步骤 5 复述了实现细节并已漂移（见 P0-4）。要么删掉步骤 5 的细节，要么把它降低为「回程由统一序列化器写出」一句话 | §4 不再出现随代码变的具体类型名 |
-| 25 | `README.md:255` | `-version` 示例输出写 `go1.27.3`，前置表写 Go ≥ 1.26，读者会以为版本要求不一致 | 示例与前置表对齐，或标注「示例输出」 |
-| 26 | `apps/server/AGENTS.md`（配置表）、`docs/contracts/api.md:22-29`（传输层表） | 请求体上限（8MB）与单请求超时（30s）是 `router.go:40,44` 的常量，既不可配也没登记；413 与 504 的行为都依赖它们 | 在配置表或契约里写明这两个值，或改成配置项 |
+| 22 | `README.md:73` vs `apps/server/AGENTS.md:259-260` | 「推倒重来」的清理口径不一致：README 只删 `data/app.db*`，后端规范还要求删 `data/cache.snapshot` | 两处命令一致；保留快照会留下旧登录态与限流计数，要写明 |
+| 23 | `docs/architecture.md:100-107` | 该节声明「分层与目录职责只写在各自正本里，本文件不复述」，但 §4 步骤 5 复述了实现细节并已漂移（见 P0-4）。要么删掉步骤 5 的细节，要么把它降低为「回程由统一序列化器写出」一句话 | §4 不再出现随代码变的具体类型名 |
+| 24 | `README.md:255` | `-version` 示例输出写 `go1.27.3`，前置表写 Go ≥ 1.26，读者会以为版本要求不一致 | 示例与前置表对齐，或标注「示例输出」 |
+| 25 | `apps/server/AGENTS.md`（配置表）、`docs/contracts/api.md:22-29`（传输层表） | 请求体上限（8MB）与单请求超时（30s）是 `router.go:40,44` 的常量，既不可配也没登记；413 与 504 的行为都依赖它们 | 在配置表或契约里写明这两个值，或改成配置项 |
 
 ## 4. 工具与流程
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 27 | `apps/server/Taskfile.yml:160`、`.github/workflows/ci.yml:55` | 测试加 `-race`；内存缓存与中间件都有并发路径，现在只跑串行单测 | 本地与 CI 都跑 `go test -race ./...`，不新增失败 |
-| 28 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数——上一批死代码就是它漏掉的 | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
-| 29 | `AGENTS.md:78-92`（第 3 节自检）、`docs/contracts/api.md:142-143` | 两条文档自检（码表行数、`apps/` 内不得外链）目前靠人手跑，改成 CI 的一步 | CI 里直接执行那两条 grep，失败即红 |
+| 26 | `apps/server/Taskfile.yml:160`、`.github/workflows/ci.yml:55` | 测试加 `-race`；内存缓存与中间件都有并发路径，现在只跑串行单测 | 本地与 CI 都跑 `go test -race ./...`，不新增失败 |
+| 27 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数——上一批死代码就是它漏掉的 | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
+| 28 | `AGENTS.md:78-92`（第 3 节自检）、`docs/contracts/api.md:142-143` | 两条文档自检（码表行数、`apps/` 内不得外链）目前靠人手跑，改成 CI 的一步 | CI 里直接执行那两条 grep，失败即红 |
 
 ## 5. 已完成
 

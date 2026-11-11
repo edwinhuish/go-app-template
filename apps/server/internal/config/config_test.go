@@ -113,6 +113,19 @@ jwt:
 			wantErr: "save_interval",
 		},
 		{
+			// 同一类笔误的另外两项：0 是「用默认值」，只有负数要拒绝。
+			name: "负数的连接寿命拒绝启动",
+			yaml: strings.Replace(base, "  driver: sqlite",
+				"  driver: sqlite\n  max_lifetime: -1", 1),
+			wantErr: "max_lifetime",
+		},
+		{
+			name: "负数的 Redis 超时拒绝启动",
+			yaml: strings.Replace(base, "  driver: memory",
+				"  driver: memory\n  redis:\n    dial_timeout: -1", 1),
+			wantErr: "dial_timeout",
+		},
+		{
 			name: "生产禁止种子账号",
 			yaml: strings.Replace(base, "  driver: sqlite",
 				"  driver: sqlite\n  seed: true", 1),
