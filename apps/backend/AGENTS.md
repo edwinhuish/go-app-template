@@ -163,7 +163,9 @@ handler ──> service ──> repository ──> model
 4. `internal/dto/xxx.go`：`XxxItem`（响应）、`XxxCreateRequest`/`XxxUpdateRequest`（入参，带 binding 标签）、
    `XxxListQuery`（嵌入 `PageQuery`）。
 5. `internal/service/xxx.go`：接口 + `NewXxxService` + `XxxOption`；业务校验、事务、模型↔契约。
-6. `internal/handler/xxx.go`：`bindJSON`/`bindQuery`/`parseID` → 调 service → **直接返回业务数据**。
+6. `internal/handler/xxx.go`：`readBody`/`bindQuery`/`parseID` → 调 service → **直接返回业务数据**。
+   请求体走框架绑定（`readBody` → `c.Body()`），因此**校验器只有一个**：`handler.Validator()`
+   在 `server` 装配时用 `fuego.WithValidator` 注入；不要在别处再 `validator.New()`。
    不要在这里包信封，也不要挑状态码。
 7. `internal/server/router.go`：注册时用 `ok(handler)` 包一层（新建用 `created(handler)` 并把
    `OptionDefaultStatusCode(201)` 一起写上），再用 `slices.Concat(doc(...), secured)` 复用

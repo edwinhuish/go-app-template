@@ -21,19 +21,18 @@ func NewAuthHandler(auth service.AuthService) *AuthHandler {
 
 // Login 处理 POST /auth/login。
 //
-// 请求体类型写在泛型参数上（ContextWithBody[dto.LoginRequest]）：
-// 框架据此生成 OpenAPI 的 requestBody schema，前端在文档里能看到字段与约束。
-// 真正的解析与校验仍走 bindJSON —— 框架自带的绑定会把错误折成它自己的文案。
+// 请求体类型写在泛型参数上（ContextWithBody[dto.LoginRequest]）：文档的 requestBody
+// schema 与运行时的解码/校验用的是同一份定义（readBody → c.Body()）。
 //
 // 返回值是业务数据本身：信封、request_id 与状态码由 server 层的装饰器统一处理。
 func (h *AuthHandler) Login(
 	c fuego.ContextWithBody[dto.LoginRequest],
 ) (*dto.LoginResponse, error) {
-	req := &dto.LoginRequest{}
-	if err := bindJSON(c.Response(), c.Request(), req); err != nil {
+	req, err := readBody(c)
+	if err != nil {
 		return nil, err
 	}
-	return h.auth.Login(c.Request().Context(), *req)
+	return h.auth.Login(c.Request().Context(), req)
 }
 
 // Logout 处理 POST /auth/logout，删除服务端会话。

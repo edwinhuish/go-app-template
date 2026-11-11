@@ -5,6 +5,7 @@
 package server_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -259,6 +260,89 @@ func TestBindingTagIsEnforced(t *testing.T) {
 		`{"username":"admin"}`, "")
 	if status != http.StatusBadRequest || doc["code"] != float64(40001) {
 		t.Errorf("登录缺密码 = %d / code %v，期望 400 / 40001", status, doc["code"])
+	}
+}
+
+// TestBodyHandlingContract 守住请求体处理的三条对外行为。
+//
+// 换成框架的 c.Body() 之后这三条都可能悄悄变掉：非 JSON 的 Content-Type 会走
+// 框架自己的解码分支、超限错误的种类变了、响应头还多了一个 Server-Timing。
+func TestBodyHandlingContract(t *testing.T) {
+	srv := newTestServer(t)
+	token, _ := login(t, srv, "admin", "admin123")
+
+	// 非 JSON 的 Content-Type 必须是 400，而不是框架解码分支 panic 出来的 500。
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/notes",
+		strings.NewReader(`{"title":"x"}`))
+	if err != nil {
+		t.Fatalf("构造请求: %v", err)
+	}
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("请求: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("text/plain 请求体 = %d，期望 400", resp.StatusCode)
+	}
+
+	// 响应头里不该出现 Server-Timing：框架的 body() 无条件加它，readBody 负责删。
+	// 同时验证未知字段仍然被忽略（DisallowUnknownFields=false 之前只是文档摆设）。
+	status, hdr, _ := call(t, srv, http.MethodPost, "/api/v1/notes",
+		`{"title":"hdr-check","extra":1}`, token)
+	if status != http.StatusCreated {
+		t.Fatalf("带未知字段的新建状态码 = %d，期望 201", status)
+	}
+	if v := hdr.Get("Server-Timing"); v != "" {
+		t.Errorf("响应头出现了 Server-Timing: %q（会破坏网关白名单）", v)
+	}
+}
+
+// TestOversizedBodyIs413 验证「超过 BodyLimit」在框架 MaxBytesReader 这条路上
+// 仍然是 413 + code 40001，而不是被折成「参数格式不正确」的 400。
+//
+// 用 chunked 发送（不设 Content-Length），让中间件的提前拒绝失效，逼着走
+// handler 里 HandleTooLarge 那一段。客户端可能在服务端返回 413 之后拿到写错误
+// （连接已被回收），那同样说明超大请求没有进入业务逻辑。
+func TestOversizedBodyIs413(t *testing.T) {
+	srv := newTestServer(t)
+	token, _ := login(t, srv, "admin", "admin123")
+
+	body := io.MultiReader(
+		strings.NewReader(`{"title":"`),
+		bytes.NewReader(bytes.Repeat([]byte("x"), 9<<20)),
+		strings.NewReader(`"}`),
+	)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/notes", body)
+	if err != nil {
+		t.Fatalf("构造请求: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Skipf("连接在收到 413 之前被回收（可接受）：%v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("超大请求体的状态码 = %d，期望 413", resp.StatusCode)
+	}
+
+	var doc map[string]any
+	raw, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("413 的响应体不是 JSON: %v", err)
+	}
+	if doc["code"] != float64(40001) {
+		t.Errorf("413 的 code = %v，期望 40001", doc["code"])
+	}
+	msg, _ := doc["message"].(string)
+	if !strings.Contains(msg, "请求体过大") {
+		t.Errorf("413 的 message = %q，期望包含「请求体过大」", msg)
 	}
 }
 

@@ -43,11 +43,11 @@ func (h *NoteHandler) Get(c fuego.ContextNoBody) (*dto.NoteItem, error) {
 func (h *NoteHandler) Create(
 	c fuego.ContextWithBody[dto.NoteCreateRequest],
 ) (*dto.NoteItem, error) {
-	req := &dto.NoteCreateRequest{}
-	if err := bindJSON(c.Response(), c.Request(), req); err != nil {
+	req, err := readBody(c)
+	if err != nil {
 		return nil, err
 	}
-	return h.notes.Create(c.Request().Context(), *req)
+	return h.notes.Create(c.Request().Context(), req)
 }
 
 // Update 处理 PUT /notes/{id}。
@@ -59,11 +59,11 @@ func (h *NoteHandler) Update(
 		return nil, err
 	}
 
-	req := &dto.NoteUpdateRequest{}
-	if err := bindJSON(c.Response(), c.Request(), req); err != nil {
+	req, err := readBody(c)
+	if err != nil {
 		return nil, err
 	}
-	return h.notes.Update(c.Request().Context(), id, *req)
+	return h.notes.Update(c.Request().Context(), id, req)
 }
 
 // Delete 处理 DELETE /notes/{id}（软删除）。
