@@ -11,12 +11,15 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
 
+	"example.com/app/internal/dto"
 	"example.com/app/internal/model"
 )
 
@@ -346,6 +349,99 @@ func TestOversizedBodyIs413(t *testing.T) {
 	}
 }
 
+// TestMethodNotAllowed 验证「路径存在、方法不对」是 405 而不是 404。
+//
+// 两者对客户端的意义完全不同：404 说明地址写错了，405 说明请求本身没毛病、
+// 换个方法就行。混成一个值，客户端只能去翻文档。
+func TestMethodNotAllowed(t *testing.T) {
+	srv := newTestServer(t)
+
+	cases := []struct {
+		name      string
+		method    string
+		path      string
+		wantAllow string
+	}{
+		{"详情不支持新建", http.MethodPost, "/api/v1/notes/1", "DELETE, GET, PUT"},
+		{"登录不支持查询", http.MethodGet, "/api/v1/auth/login", "POST"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			status, hdr, body := rawDo(t, srv, c.method, c.path, "")
+			if status != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s = %d，期望 405（响应 %q）", c.method, c.path, status, body)
+			}
+			if got := hdr.Get("Allow"); got != c.wantAllow {
+				t.Errorf("Allow = %q，期望 %q", got, c.wantAllow)
+			}
+		})
+	}
+
+	// 路径本身不存在时必须仍然是 404，不能被 405 吞掉。
+	status, _, body := rawDo(t, srv, http.MethodPost, "/api/v1/nope", "")
+	if status != http.StatusNotFound {
+		t.Errorf("未知路径 = %d，期望 404（响应 %q）", status, body)
+	}
+}
+
+// TestListQueryParamsMatchSpec 守住「查询参数只有一处真相」。
+//
+// 列表参数现在有两个来源：dto 上的 form 标签决定怎么解析，路由上的
+// OptionQuery* 决定文档里有什么。两边不相等时不会报错——文档里多出来的参数
+// 会被 IgnoreUnknownKeys 静默忽略，少写的参数则只在前端照着文档写时才会发现。
+func TestListQueryParamsMatchSpec(t *testing.T) {
+	srv := newTestServer(t)
+
+	status, raw := rawGet(t, srv, "/openapi.json")
+	if status != http.StatusOK {
+		t.Fatalf("GET /openapi.json = %d，期望 200", status)
+	}
+
+	var spec struct {
+		Paths map[string]map[string]struct {
+			Parameters []struct {
+				Name string `json:"name"`
+				In   string `json:"in"`
+			} `json:"parameters"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		t.Fatalf("解析 OpenAPI 文档: %v", err)
+	}
+
+	// 文档里的方法键是小写的（"get"），不是 HTTP 方法常量。
+	var fromSpec []string
+	for _, p := range spec.Paths["/api/v1/notes"]["get"].Parameters {
+		if p.In == "query" {
+			fromSpec = append(fromSpec, p.Name)
+		}
+	}
+	slices.Sort(fromSpec)
+
+	// 递归读 form 标签：查询结构体里嵌入的 PageQuery 也要算进来。
+	var fromDTO []string
+	var walk func(reflect.Type)
+	walk = func(typ reflect.Type) {
+		for i := 0; i < typ.NumField(); i++ {
+			f := typ.Field(i)
+			if f.Anonymous {
+				walk(f.Type)
+				continue
+			}
+			if name, ok := f.Tag.Lookup("form"); ok && name != "" {
+				fromDTO = append(fromDTO, name)
+			}
+		}
+	}
+	walk(reflect.TypeOf(dto.NoteListQuery{}))
+	slices.Sort(fromDTO)
+
+	if !slices.Equal(fromSpec, fromDTO) {
+		t.Errorf("文档里的查询参数 = %v，dto 的 form 标签 = %v（两处必须一致）", fromSpec, fromDTO)
+	}
+}
+
 // TestOpenAPIErrorSchema 验证文档里所有失败响应都指向统一信封。
 //
 // 这条是 sanitizeErrorResponses 的事后修补，属于「改了不会报错、只会让文档失真」
@@ -402,19 +498,33 @@ func TestOpenAPIErrorSchema(t *testing.T) {
 	}
 }
 
-// rawGet 不做 JSON 解析：文档与 404 的响应体都不是信封。
+// rawGet 不做 JSON 解析：文档、404 与 405 的响应体都不是信封。
 func rawGet(t *testing.T, srv *httptest.Server, path string) (int, string) {
 	t.Helper()
+	status, _, body := rawDo(t, srv, http.MethodGet, path, "")
+	return status, body
+}
 
-	resp, err := srv.Client().Get(srv.URL + path)
+func rawDo(t *testing.T, srv *httptest.Server, method, path, token string) (int, http.Header, string) {
+	t.Helper()
+
+	req, err := http.NewRequest(method, srv.URL+path, nil)
 	if err != nil {
-		t.Fatalf("请求 %s: %v", path, err)
+		t.Fatalf("构造请求 %s %s: %v", method, path, err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("请求 %s %s: %v", method, path, err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
-		t.Fatalf("读响应 %s: %v", path, err)
+		t.Fatalf("读响应 %s %s: %v", method, path, err)
 	}
-	return resp.StatusCode, string(raw)
+	return resp.StatusCode, resp.Header, string(raw)
 }

@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -76,14 +77,16 @@ func New(
 	fg := newFuegoServer(cfg, log, version)
 
 	registerRoutes(fg, h, auth)
-	// 兜底 404 直接挂在 mux 上，不走 Fuego：它是基础设施而不是业务接口，
-	// 不该出现在文档里，也不该占用一个 operation。
-	fg.Mux.Handle("/", http.HandlerFunc(notFound))
 
 	// 文档路由最后注册：它自己也是两条路由，先注册会让它们排在业务路由之前，
 	// 出问题时不容易判断「文档是不是把业务路由盖住了」。
 	fg.RegisterOpenAPIRoutes(fg)
 	sanitizeErrorResponses(fg.OpenAPI.Description())
+
+	// 兜底处理器直接挂在 mux 上，不走 Fuego：它是基础设施而不是业务接口，
+	// 不该出现在文档里，也不该占用一个 operation。注册顺序放在最后，是为了
+	// 让它能看到全部已注册的路径——区分 404 与 405 要靠这份路径集合。
+	fg.Mux.Handle("/", notFound(newRouteIndex(fg.OpenAPI.Description())))
 
 	return &Server{
 		fg: fg,
@@ -361,14 +364,82 @@ func sanitizeErrorResponses(spec *openapi3.T) {
 	}
 }
 
-// notFound 是兜底 404，输出与改造前逐字一致。
+// routeIndex 记录「路径模板 → 允许的方法」，用来区分 404 与 405。
 //
-// 用 mux 的默认 404 会是 text/plain; charset=utf-8 加一个换行；
-// 这里的形状（text/plain、无换行）是既有行为，网关的规则可能按它匹配。
-func notFound(w http.ResponseWriter, _ *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(http.StatusNotFound)
-	_, _ = w.Write([]byte("404 page not found"))
+// 兜底处理器挂在 mux 的 "/" 上，只能知道「没有路由接住这次请求」，不知道是
+// 路径不存在还是方法不对。模板取自 OpenAPI 文档，与路由注册同源；文档路由在
+// 生产只是不暴露，路径集合本身照样完整。
+type routeIndex map[string][]string
+
+func newRouteIndex(spec *openapi3.T) routeIndex {
+	idx := make(routeIndex)
+	if spec == nil {
+		return idx
+	}
+	for path, item := range spec.Paths.Map() {
+		if item == nil {
+			continue
+		}
+		for method := range item.Operations() {
+			// 文档里的方法键是小写（get/post），Allow 头按约定写成大写。
+			idx[path] = append(idx[path], strings.ToUpper(method))
+		}
+	}
+	return idx
+}
+
+// match 返回该路径允许的方法；路径本身不存在时返回 nil。
+func (idx routeIndex) match(path string) []string {
+	var methods []string
+	for tpl, ms := range idx {
+		if matchPathTemplate(tpl, path) {
+			methods = append(methods, ms...)
+		}
+	}
+	slices.Sort(methods)
+	return methods
+}
+
+// matchPathTemplate 按段比较路径模板，{name} 段匹配任意非空段。
+func matchPathTemplate(tpl, path string) bool {
+	tplSegs := strings.Split(strings.Trim(tpl, "/"), "/")
+	pathSegs := strings.Split(strings.Trim(path, "/"), "/")
+	if len(tplSegs) != len(pathSegs) {
+		return false
+	}
+	for i, seg := range tplSegs {
+		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
+			if pathSegs[i] == "" {
+				return false
+			}
+			continue
+		}
+		if seg != pathSegs[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// notFound 是兜底处理器：路径存在但方法不匹配时给 405，其余给 404。
+//
+// 两个响应都是 text/plain 且不带换行——这是改造前就有的形状（走兜底说明不是
+// 业务接口，不该套信封），网关的规则可能按它匹配。405 额外带 Allow，客户端据此
+// 能自己纠正，不必去翻文档。
+func notFound(idx routeIndex) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if allow := idx.match(r.URL.Path); len(allow) > 0 {
+			w.Header().Set("Allow", strings.Join(allow, ", "))
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			_, _ = w.Write([]byte("405 method not allowed"))
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("404 page not found"))
+	}
 }
 
 // described 设置 schema 的描述。kin-openapi 没有 WithDescription，
