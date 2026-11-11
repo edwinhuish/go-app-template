@@ -1,7 +1,8 @@
 # 生产配置模板：PostgreSQL + Redis。
 #
 # 密码一律通过环境变量注入，不要写进仓库：
-#   APP_DB_PASSWORD、APP_REDIS_PASSWORD、APP_JWT_SECRET
+#   APP_DATABASE_PASSWORD、APP_CACHE_REDIS_PASSWORD、APP_JWT_SECRET
+# 变量名 = APP_ + 配置路径（层级用下划线），见 apps/server/AGENTS.md 第 6 节。
 # 换 MySQL 只需把 driver 改成 mysql 并把 port 改成 3306，其余键名不变。
 app:
   name: app

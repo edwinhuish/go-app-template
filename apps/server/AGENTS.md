@@ -237,6 +237,15 @@ handler ──> service ──> repository ──> model
 
 优先级：**配置文件 < 环境变量（`APP_` 前缀）**，生产模板 `configs/config.prod.yaml`。
 
+变量名由字段的 yaml 路径推导，**不需要单独登记**：`APP_` + 路径，层级与键名统一用下划线，
+`app` 段并进前缀。例：`http.addr` → `APP_HTTP_ADDR`，`database.dsn` → `APP_DATABASE_DSN`，
+`cache.memory.save_interval` → `APP_CACHE_MEMORY_SAVE_INTERVAL`。加一个字段就自动多一个变量。
+
+- 列表用逗号分隔，自动去首尾空格与空项：`APP_HTTP_CORS_ORIGINS="https://a,https://b"`。
+- 空字符串视为「未设置」，保持配置文件里的值——`VAR=${VAR}` 展开成空串不会把生产密钥清空。
+- 取值非法（`APP_HTTP_SHUTDOWN_TIMEOUT=abc`）直接拒绝启动，并点名是哪个变量。
+- `database.params` 这类 map 没有环境变量出口，改它们请直接改配置文件。
+
 | 项 | 默认 | 说明 |
 |---|---|---|
 | `http.addr` | `:8080` | 监听地址；消费方连的就是这个端口 |
@@ -252,7 +261,8 @@ handler ──> service ──> repository ──> model
 - 启动期就校验（`config.Validate`）：驱动名、必填项、生产环境的密钥长度、seed 开关、
   `cors_origins` 非空，以及几个时长/间隔不能为负（负值会在 `time.NewTicker` 里 panic）。
   失败就退出，而不是等到第一个请求才 500。
-- 新增配置项要同时改：结构体字段 + 默认值 + 环境变量覆盖 + 校验 + 本节表格；只加结构体字段等于给了个零值。
+- 新增配置项要同时改：结构体字段（带 `yaml` tag）+ 默认值 + 校验 + 本节表格；只加结构体字段等于给了个零值。
+  环境变量出口由 `yaml` tag 自动推导，不用再登记一次——但 tag 写错，变量名就会跟着错。
 
 ## 7. 注释与命名
 

@@ -1,7 +1,18 @@
 // Package config 负责加载与校验应用配置。
 //
-// 优先级：配置文件 < 环境变量（APP_ 前缀）。
-// 生产环境的密码、连接串一律走环境变量，不进仓库。
+// 优先级：配置文件 < 环境变量（APP_ 前缀）。生产环境的密码、连接串一律走环境变量，
+// 不进仓库。
+//
+// 环境变量名由字段的 yaml 路径推导，不再维护第二份清单：
+//
+//	app.env                    -> APP_ENV（前缀本身代表 app 段）
+//	http.addr                  -> APP_HTTP_ADDR
+//	database.dsn               -> APP_DATABASE_DSN
+//	cache.redis.addr           -> APP_CACHE_REDIS_ADDR
+//	cache.memory.save_interval -> APP_CACHE_MEMORY_SAVE_INTERVAL
+//
+// 加一个字段就自动多了对应的环境变量；取值非法（APP_DATABASE_PORT=abc）会拒绝启动，
+// 而不是像以前那样当作没设置——那种静默忽略最贵的后果是「生产的密码没生效」。
 //
 // 存储相关的配置都遵循同一个思路：**用配置项切换实现，而不是改代码**。
 // 数据库靠 database.driver（postgres | mysql | sqlite），
@@ -12,12 +23,16 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/rawbytes"
+	"github.com/knadh/koanf/v2"
 
 	"example.com/app/internal/pkg/dialect"
 )
@@ -160,13 +175,33 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("读取配置文件 %s: %w", path, err)
 	}
 
-	var cfg Config
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+	k := koanf.New(".")
+	if err := k.Load(rawbytes.Provider(raw), yaml.Parser()); err != nil {
 		return nil, fmt.Errorf("解析配置文件 %s: %w", path, err)
 	}
 
+	applied, err := applyEnv(k)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg Config
+	if err := k.UnmarshalWithConf("", &cfg, koanf.UnmarshalConf{
+		Tag: "yaml",
+		DecoderConfig: &mapstructure.DecoderConfig{
+			TagName: "yaml",
+			// 环境变量一律是字符串，int/bool/指针都要靠弱类型转换落地。
+			WeaklyTypedInput: true,
+			// 列表要单独处理：弱类型转换会把 "a,b" 整体塞成一个元素。
+			DecodeHook: stringToSlice,
+			Result:     &cfg,
+		},
+	}); err != nil {
+		return nil, fmt.Errorf("解码配置失败（本次应用的环境变量：%s）: %w",
+			strings.Join(applied, " "), err)
+	}
+
 	cfg.applyDefaults()
-	cfg.applyEnv()
 
 	// 环境可能在 APP_ENV 里被改写，安全默认值要等两轮覆盖都结束再定。
 	cfg.Database.prod = cfg.IsProd()
@@ -254,40 +289,125 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-// applyEnv 只覆盖最常因环境而变的几项，其余仍以配置文件为准。
-func (c *Config) applyEnv() {
-	setStr(&c.App.Env, "APP_ENV")
-	setStr(&c.App.SeedAdminUsername, "APP_SEED_ADMIN_USERNAME")
-	setStr(&c.App.SeedAdminPassword, "APP_SEED_ADMIN_PASSWORD")
+// envPrefix 是所有配置环境变量的前缀。前缀本身就代表 app 段，所以 app.env 是
+// APP_ENV，而不是 APP_APP_ENV。
+const envPrefix = "APP_"
 
-	setStr(&c.HTTP.Addr, "APP_HTTP_ADDR")
-	setStr(&c.HTTP.Mode, "APP_HTTP_MODE")
+// applyEnv 把环境变量写进配置树，返回本次真正生效的变量名（用于报错时给线索）。
+//
+// 变量名不是手写的清单，而是从结构体推导：加一个字段就自动多一个环境变量，
+// 不会出现「配置文件加了键、环境变量忘了加」这种只有部署时才发现的不一致。
+//
+// 空字符串当作「没有设置」：容器编排里 `VAR=${VAR}` 展开成空串很常见，那种情况
+// 应当保持配置文件的值，而不是把生产密钥清成空。
+//
+// map 类型的键（database.params）不提供环境变量出口：它按驱动解释，硬塞一个字符串
+// 会拼出非法连接串，需要改这类参数的场景请直接改配置文件的 params 段。
+func applyEnv(k *koanf.Koanf) ([]string, error) {
+	vars := envVars()
 
-	setStr(&c.Database.Driver, "APP_DB_DRIVER")
-	setStr(&c.Database.DSN, "APP_DB_DSN")
-	setStr(&c.Database.Host, "APP_DB_HOST")
-	setStr(&c.Database.User, "APP_DB_USER")
-	setStr(&c.Database.Password, "APP_DB_PASSWORD")
-	setStr(&c.Database.Name, "APP_DB_NAME")
-	setStr(&c.Database.LogLevel, "APP_DB_LOG_LEVEL")
-	setInt(&c.Database.Port, "APP_DB_PORT")
+	seen := make(map[string]string, len(vars))
+	applied := make([]string, 0, len(vars))
 
-	setStr(&c.Cache.Driver, "APP_CACHE_DRIVER")
-	setStr(&c.Cache.Memory.Path, "APP_CACHE_MEMORY_PATH")
-	setStr(&c.Cache.Redis.Addr, "APP_REDIS_ADDR")
-	setStr(&c.Cache.Redis.Password, "APP_REDIS_PASSWORD")
-	setInt(&c.Cache.Redis.DB, "APP_REDIS_DB")
-	setInt(&c.Cache.Memory.SaveInterval, "APP_CACHE_SAVE_INTERVAL")
-	setBool(&c.Cache.FallbackToMemory, "APP_CACHE_FALLBACK_TO_MEMORY")
-	setBoolPtr(&c.Cache.Memory.Persist, "APP_CACHE_MEMORY_PERSIST")
+	for _, v := range vars {
+		if prev, dup := seen[v.name]; dup {
+			return nil, fmt.Errorf("配置项 %s 与 %s 推导出同一个环境变量名 %s，请改名",
+				prev, v.key, v.name)
+		}
+		seen[v.name] = v.key
 
-	setStr(&c.JWT.Secret, "APP_JWT_SECRET")
-	setStr(&c.Log.Level, "APP_LOG_LEVEL")
-	setStr(&c.Log.Format, "APP_LOG_FORMAT")
-
-	if v := os.Getenv("APP_HTTP_CORS_ORIGINS"); v != "" {
-		c.HTTP.CORSOrigins = normalizeList(strings.Split(v, ","))
+		val, ok := os.LookupEnv(v.name)
+		if !ok || val == "" {
+			continue
+		}
+		k.Set(v.key, val)
+		applied = append(applied, v.name)
 	}
+	return applied, nil
+}
+
+// envVar 是一条「环境变量名 ↔ 配置路径」的对应关系。
+type envVar struct {
+	name string // APP_CACHE_REDIS_ADDR
+	key  string // cache.redis.addr
+}
+
+// envVars 用反射遍历配置结构体的 yaml tag，推出每个叶子字段的环境变量名。
+//
+// 只认 yaml tag：它是配置文件里真实存在的键，也是文档表格里那一列。
+// 未导出字段（database.prod 这类由程序填入的状态）跳过。
+func envVars() []envVar {
+	var out []envVar
+
+	var walk func(t reflect.Type, path string)
+	walk = func(t reflect.Type, path string) {
+		for i := 0; i < t.NumField(); i++ {
+			f := t.Field(i)
+			if !f.IsExported() {
+				continue
+			}
+			tag, ok := f.Tag.Lookup("yaml")
+			if !ok || tag == "" || tag == "-" {
+				continue
+			}
+
+			key := tag
+			if path != "" {
+				key = path + "." + tag
+			}
+
+			typ := f.Type
+			if typ.Kind() == reflect.Ptr {
+				typ = typ.Elem()
+			}
+			switch typ.Kind() {
+			case reflect.Struct:
+				walk(typ, key)
+			case reflect.Map:
+				// 见 applyEnv 的说明：map 不做环境变量覆盖。
+			default:
+				out = append(out, envVar{name: envName(key), key: key})
+			}
+		}
+	}
+	walk(reflect.TypeOf(Config{}), "")
+
+	return out
+}
+
+// envName 把配置路径翻成环境变量名：app. 段并进前缀，层级与键名统一用下划线。
+//
+//	database.dsn               -> APP_DATABASE_DSN
+//	cache.memory.save_interval -> APP_CACHE_MEMORY_SAVE_INTERVAL
+//
+// 名字是从路径「生成」的，不再反向解析回来，所以键名里的下划线（save_interval）
+// 不会被误当成层级分隔。
+func envName(key string) string {
+	key = strings.TrimPrefix(key, "app.")
+	return envPrefix + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+}
+
+// stringToSlice 让 `APP_HTTP_CORS_ORIGINS=https://a,https://b` 覆盖成两项。
+//
+// 弱类型转换只会把整串塞进一个元素（于是跨域全部失效且不报错），必须显式按逗号拆，
+// 并顺手去掉首尾空格与空项——环境变量里带空格是最常见的手滑。
+func stringToSlice(from, to reflect.Type, data any) (any, error) {
+	if from.Kind() != reflect.String || to.Kind() != reflect.Slice {
+		return data, nil
+	}
+	raw, ok := data.(string)
+	if !ok {
+		return data, nil
+	}
+
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 // Validate 校验启动必需项，把配置问题暴露在启动阶段而不是首次请求。
@@ -497,35 +617,4 @@ func normalizeList(in []string) []string {
 		}
 	}
 	return out
-}
-
-func setStr(dst *string, key string) {
-	if v := os.Getenv(key); v != "" {
-		*dst = v
-	}
-}
-
-func setInt(dst *int, key string) {
-	if v := os.Getenv(key); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			*dst = n
-		}
-	}
-}
-
-func setBool(dst *bool, key string) {
-	if v := os.Getenv(key); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			*dst = b
-		}
-	}
-}
-
-// setBoolPtr 处理三态开关（未配置 / true / false），用于 persist 这类默认开启的选项。
-func setBoolPtr(dst **bool, key string) {
-	if v := os.Getenv(key); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			*dst = &b
-		}
-	}
 }
