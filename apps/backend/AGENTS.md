@@ -249,15 +249,19 @@ task build               # 产物到 bin/app-server，版本号构建期注入
 要推倒重来就删 `data/app.db*` 与 `data/cache.snapshot`。
 
 驱动相关的语义（MySQL 的 UPDATE 行数、软删除唯一索引、乐观锁时间精度）在 SQLite 上
-跑不出来，所以有 `internal/repository/integration_test.go`：默认跳过，起一个一次性容器
-再指定驱动即可（`APP_TEST_PORT` 对上映射端口，用户/库默认 `app`）：
+跑不出来，`cache` 两套实现「语义一致」的对照表也只有真 Redis 能验。这两个用例默认
+跳过，起一个一次性容器再指定地址即可（用户/库默认 `app`）：
 
 ```bash
 docker run -d --name probe-mysql -p 13306:3306 \
   -e MYSQL_ROOT_PASSWORD=root123 -e MYSQL_DATABASE=app \
   -e MYSQL_USER=app -e MYSQL_PASSWORD=app mysql:8.4
 APP_TEST_DRIVER=mysql APP_TEST_PORT=13306 go test ./internal/repository -v
-docker rm -f probe-mysql         # 改成 postgres:17-alpine + 5432 即测 Postgres
+docker rm -f probe-mysql         # 改成 postgres:17-alpine 与 15432:5432 即测 Postgres
+
+docker run -d --name probe-redis -p 16379:6379 redis:7-alpine
+APP_TEST_REDIS_ADDR=127.0.0.1:16379 go test ./internal/infra/cache -v
+docker rm -f probe-redis
 ```
 
 改动后的连带检查：
