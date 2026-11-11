@@ -75,7 +75,7 @@ jobs:
             suffix: arm64
     steps:
       - name: 检出代码
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # 手动触发且没填版本时要回落到「最新 tag」，浅克隆里没有 tag，只能取全。
           fetch-depth: 0
@@ -85,7 +85,7 @@ jobs:
         run: scripts/release-version.sh
 
       - name: 安装 Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           # 版本跟 go.mod 的 go 指令走，不在 YAML 里另写一个数字。
           go-version-file: apps/backend/go.mod
@@ -127,20 +127,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # pnpm 版本从 package.json 的 packageManager 读，不在 YAML 里写死第二个数字。
+      # 缓存同 ci.yml：交给 setup-node 的 cache: pnpm，这里只装 pnpm。
       - name: 安装 pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           package_json_file: apps/frontend/package.json
-          cache: true
-          cache_dependency_path: apps/frontend/pnpm-lock.yaml
 
       - name: 安装 Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/frontend/pnpm-lock.yaml
 
       - name: 安装依赖（严格按锁文件）
         working-directory: apps/frontend
@@ -175,7 +176,7 @@ jobs:
       contents: write
     steps:
       - name: 检出代码
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           # 变更日志按 previous_tag..current_tag 取提交，浅克隆里既没历史也没 tag。
           fetch-depth: 0
@@ -235,7 +236,7 @@ jobs:
       packages: write
     steps:
       - name: 检出代码
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
