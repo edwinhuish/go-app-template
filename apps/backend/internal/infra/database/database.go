@@ -6,6 +6,7 @@
 package database
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -33,7 +34,7 @@ func Open(cfg config.Database, log *slog.Logger) (*gorm.DB, error) {
 	}
 
 	gormCfg := &gorm.Config{
-		Logger: gormlogger.Default.LogMode(logLevel(cfg.LogLevel)),
+		Logger: newGormLogger(log, cfg.LogLevel),
 		// 表名用单数更贴近业务实体：user / note。
 		NamingStrategy: schema.NamingStrategy{SingularTable: true},
 		// 关闭 gorm 的默认事务包装：单条写入本来就在隐式事务里，
@@ -187,5 +188,45 @@ func logLevel(level string) gormlogger.LogLevel {
 		return gormlogger.Info
 	default:
 		return gormlogger.Warn
+	}
+}
+
+// newGormLogger 把 gorm 的日志接到本项目的 slog 上。
+//
+// 不用 gormlogger.Default，它有两个副作用会直接坑到线上：
+//   - 带 ANSI 颜色：JSON 日志里出现 \u001b[31;1m，行采集解析直接坏掉；
+//   - 把 ErrRecordNotFound 当 Warn 打出来：而「按用户名查不到」在登录流程里是
+//     正常分支，一次用户名探测就能刷一行红字，既能淹没真实告警，也放大了日志量。
+//
+// 另外它只认自己的 LogLevel，与 log.level 是两套开关；这里转成 slog 的级别，
+// 让「改 log.level」对 SQL 日志同样生效。
+func newGormLogger(log *slog.Logger, level string) gormlogger.Interface {
+	return gormlogger.New(gormSlogWriter{log: log, level: slogLevel(level)}, gormlogger.Config{
+		SlowThreshold: 200 * time.Millisecond,
+		LogLevel:      logLevel(level),
+		// 查不到记录是业务分支，不是异常。
+		IgnoreRecordNotFoundError: true,
+		Colorful:                  false,
+	})
+}
+
+type gormSlogWriter struct {
+	log   *slog.Logger
+	level slog.Level
+}
+
+func (w gormSlogWriter) Printf(format string, args ...any) {
+	w.log.Log(context.Background(), w.level, strings.TrimSpace(fmt.Sprintf(format, args...)))
+}
+
+// slogLevel 把配置里的日志级别翻成 slog 级别，供 SQL 日志复用同一个开关。
+func slogLevel(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "error", "silent":
+		return slog.LevelError
+	default:
+		return slog.LevelWarn
 	}
 }
