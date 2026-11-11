@@ -46,14 +46,6 @@ func newQueryDecoder() *schema.Decoder {
 	return d
 }
 
-// fail 返回零值响应加错误。
-//
-// handler 里出错一律用它，免得每个分支都写一遍 response.Envelope[X]{}；
-// 错误的 HTTP 状态由统一信封决定，handler 不挑状态码。
-func fail[T any](err error) (response.Envelope[T], error) {
-	return response.Envelope[T]{}, err
-}
-
 // bindJSON 把请求体解成 dst 并校验。
 //
 // 返回的可能是 *errs.Error（交给框架输出），也可能是 response.ErrResponseWritten
@@ -92,9 +84,6 @@ func parseID(raw string) (uint, error) {
 	}
 	return uint(id), nil
 }
-
-// requestID 取当前请求的追踪 ID，写在响应体的 request_id 里。
-func requestID(r *http.Request) string { return response.RequestIDFrom(r.Context()) }
 
 // validationMessage 把校验错误翻译成可定位的中文提示。
 //

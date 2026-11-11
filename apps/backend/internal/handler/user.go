@@ -4,7 +4,6 @@ import (
 	"github.com/go-fuego/fuego"
 
 	"example.com/app/internal/dto"
-	"example.com/app/internal/pkg/response"
 	"example.com/app/internal/service"
 )
 
@@ -18,11 +17,7 @@ func NewUserHandler(users service.UserService) *UserHandler {
 	return &UserHandler{users: users}
 }
 
-// List 处理 GET /users。路由上已挂了 RequireAdmin，越权由中间件拦住。
-func (h *UserHandler) List(c fuego.ContextNoBody) (response.Envelope[[]dto.UserItem], error) {
-	res, err := h.users.List(c.Request().Context())
-	if err != nil {
-		return fail[[]dto.UserItem](err)
-	}
-	return response.OK(requestID(c.Request()), res), nil
+// List 处理 GET /users。路由上已挂了鉴权与 RequireAdmin，越权由中间件拦住。
+func (h *UserHandler) List(c fuego.ContextNoBody) ([]dto.UserItem, error) {
+	return h.users.List(c.Request().Context())
 }

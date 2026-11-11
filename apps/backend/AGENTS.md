@@ -123,7 +123,8 @@ handler ──> service ──> repository ──> model
 - `internal/pkg/*` 不 import `internal` 其它包（`pkg` 是叶子）。
 - **错误只走 `internal/pkg/errs`**：service 返回 `errs.BadRequest/ErrNotFound/...`，
   handler 直接 `return` 这个错误，由统一序列化器翻成响应；不要自己挑状态码、不要自己写 JSON。
-- **成功响应只用 `response.OK/Created`**：返回 `response.Envelope[T]`，形状按第 1 节。
+- **handler 只返回业务数据**：签名是 `(业务类型, error)`，函数体里不出现 `response.*`。
+  信封与 `request_id` 由 `internal/server/decorate.go` 的 `ok` / `created` 在注册处统一包裹。
   `response.Fail` 只给中间件用——它们拿不到 handler 的返回值，只能自己写响应。
 - **每个对外函数带 `ctx context.Context`** 并一路传到底：超时与取消靠它传导到驱动层。
 - **软删除用 `model.DeletedAt`**，唯一索引把 `deleted_at` 排进去（`priority` 见 `model/user.go`）。
@@ -139,10 +140,13 @@ handler ──> service ──> repository ──> model
 4. `internal/dto/xxx.go`：`XxxItem`（响应）、`XxxCreateRequest`/`XxxUpdateRequest`（入参，带 binding 标签）、
    `XxxListQuery`（嵌入 `PageQuery`）。
 5. `internal/service/xxx.go`：接口 + `NewXxxService` + `XxxOption`；业务校验、事务、模型↔契约。
-6. `internal/handler/xxx.go`：`bindJSON`/`bindQuery`/`parseID` → 调 service → `response.*`。
-7. `internal/server/router.go`：用 `slices.Concat(doc(...), secured)` 复用「鉴权 + 安全声明 +
-   失败码」；管理端换成 `adminOnly`，多出来的失败码用 `errorResponses(409)` 这类补上。
-   漏挂 `secured` 不会报错，只会把一条需要登录的接口变成公开接口。
+6. `internal/handler/xxx.go`：`bindJSON`/`bindQuery`/`parseID` → 调 service → **直接返回业务数据**。
+   不要在这里包信封，也不要挑状态码。
+7. `internal/server/router.go`：注册时用 `ok(handler)` 包一层（新建用 `created(handler)` 并把
+   `OptionDefaultStatusCode(201)` 一起写上），再用 `slices.Concat(doc(...), secured)` 复用
+   「鉴权 + 安全声明 + 失败码」；管理端换成 `adminOnly`，其余失败码用 `errorResponses(409)` 补。
+   两处漏挂都不会报错：漏 `secured` 会把需要登录的接口变成公开接口，漏 `ok` 会让响应变成裸对象
+   ——两者都由 `internal/server/envelope_test.go` 兜住，所以别删那个文件。
 8. 测试：至少覆盖 service 的校验分支；仓储的特殊查询补集成测试。
 9. 第 4 步定下的字段名，就是第 1 节那份对外承诺的一部分：改名按破坏性变更处理。
 

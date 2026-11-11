@@ -196,11 +196,11 @@ func registerRoutes(s *fuego.Server, h Handlers, auth service.AuthService) {
 			http.StatusInternalServerError, http.StatusGatewayTimeout),
 	)
 
-	fuego.Get(s, "/healthz", handler.Health,
+	fuego.Get(s, "/healthz", ok(handler.Health),
 		doc("health", "存活检查", "system")...,
 	)
 
-	fuego.Post(s, "/api/v1/auth/login", h.Auth.Login,
+	fuego.Post(s, "/api/v1/auth/login", ok(h.Auth.Login),
 		slices.Concat(
 			doc("login", "账号密码登录", "auth"),
 			errorResponses(http.StatusBadRequest, http.StatusUnauthorized,
@@ -208,15 +208,15 @@ func registerRoutes(s *fuego.Server, h Handlers, auth service.AuthService) {
 		)...,
 	)
 
-	fuego.Get(s, "/api/v1/auth/profile", h.Auth.Profile,
+	fuego.Get(s, "/api/v1/auth/profile", ok(h.Auth.Profile),
 		slices.Concat(doc("getProfile", "当前登录身份", "auth"), secured)...,
 	)
 
-	fuego.Post(s, "/api/v1/auth/logout", h.Auth.Logout,
+	fuego.Post(s, "/api/v1/auth/logout", ok(h.Auth.Logout),
 		slices.Concat(doc("logout", "登出并失效当前会话", "auth"), secured)...,
 	)
 
-	fuego.Get(s, "/api/v1/notes", h.Note.List,
+	fuego.Get(s, "/api/v1/notes", ok(h.Note.List),
 		slices.Concat(
 			doc("listNotes", "分页查询示例记录", "note"),
 			secured,
@@ -229,7 +229,9 @@ func registerRoutes(s *fuego.Server, h Handlers, auth service.AuthService) {
 		)...,
 	)
 
-	fuego.Post(s, "/api/v1/notes", h.Note.Create,
+	// created 与 OptionDefaultStatusCode 说的是同一件事（新建成功），
+	// 前者决定响应体的 message，后者决定状态码与文档。两者不一致时线格式比对会失败。
+	fuego.Post(s, "/api/v1/notes", created(h.Note.Create),
 		slices.Concat(
 			doc("createNote", "新建示例记录", "note"),
 			[]fuego.RouteOption{fuego.OptionDefaultStatusCode(http.StatusCreated)},
@@ -243,17 +245,17 @@ func registerRoutes(s *fuego.Server, h Handlers, auth service.AuthService) {
 			errorResponses(http.StatusNotFound))...,
 	)
 
-	fuego.Put(s, "/api/v1/notes/{id}", h.Note.Update,
+	fuego.Put(s, "/api/v1/notes/{id}", ok(h.Note.Update),
 		slices.Concat(doc("updateNote", "更新示例记录（可选乐观锁）", "note"), secured,
 			errorResponses(http.StatusNotFound, http.StatusConflict))...,
 	)
 
-	fuego.Delete(s, "/api/v1/notes/{id}", h.Note.Delete,
+	fuego.Delete(s, "/api/v1/notes/{id}", ok(h.Note.Delete),
 		slices.Concat(doc("deleteNote", "软删除示例记录", "note"), secured,
 			errorResponses(http.StatusNotFound))...,
 	)
 
-	fuego.Get(s, "/api/v1/users", h.User.List,
+	fuego.Get(s, "/api/v1/users", ok(h.User.List),
 		slices.Concat(doc("listUsers", "账号目录（仅管理员）", "user"), adminOnly)...,
 	)
 }
@@ -286,6 +288,9 @@ func errorResponses(codes ...int) []fuego.RouteOption {
 	return opts
 }
 
+// errorSchemaName 是失败响应共用的 schema 组件名。
+const errorSchemaName = "ErrorBody"
+
 // errorResponseDescriptions 是各失败状态码在文档里的口径，与 pkg/errs 的码表一致。
 var errorResponseDescriptions = map[int]string{
 	http.StatusBadRequest:            "参数错误（code 40001）：绑定失败或业务校验不通过",
@@ -310,19 +315,20 @@ func sanitizeErrorResponses(spec *openapi3.T) {
 		spec.Components.Schemas = openapi3.Schemas{}
 	}
 
-	errSchema, ok := spec.Components.Schemas["ErrorBody"]
-	if !ok || errSchema == nil {
-		errSchema = &openapi3.SchemaRef{Value: openapi3.NewObjectSchema().
-			WithProperty("code", described(openapi3.NewIntegerSchema(), "业务码，非 0 表示失败")).
-			WithProperty("message", described(openapi3.NewStringSchema(), "给人看的文案，可直接展示")).
-			WithProperty("request_id", described(openapi3.NewStringSchema(), "与响应头 X-Request-ID 一致")).
-			WithRequired([]string{"code", "message"})}
-		spec.Components.Schemas["ErrorBody"] = errSchema
-	}
+	// 无条件覆盖：OptionAddResponse 已经从 response.ErrorBody 生成过一份同名 schema，
+	// 但那份没有字段说明；留着它等于把文档里最需要解释的两个字段写成一串类型名。
+	spec.Components.Schemas[errorSchemaName] = &openapi3.SchemaRef{Value: openapi3.NewObjectSchema().
+		WithProperty("code", described(openapi3.NewIntegerSchema(), "业务码，非 0 表示失败")).
+		WithProperty("message", described(openapi3.NewStringSchema(), "给人看的文案，可直接展示")).
+		WithProperty("request_id", described(openapi3.NewStringSchema(), "与响应头 X-Request-ID 一致")).
+		WithRequired([]string{"code", "message"})}
 
-	// 所有失败响应共用同一个 schema 引用：它们的字段集合是固定的，
-	// 各写一份只会让后续改动漏掉几处。
-	content := openapi3.NewContentWithSchemaRef(errSchema, []string{"application/json"})
+	// 用 $ref 而不是内联：43 处失败响应各写一份，等于把同一个结构复制 43 遍，
+	// 改一处字段就得改 43 处，而漏改的表现是文档里两种错误形状并存。
+	content := openapi3.NewContentWithSchemaRef(
+		&openapi3.SchemaRef{Ref: "#/components/schemas/" + errorSchemaName},
+		[]string{"application/json"},
+	)
 
 	for _, item := range spec.Paths.Map() {
 		if item == nil {
