@@ -5,10 +5,12 @@
 package server_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -215,6 +217,62 @@ func TestDocsRoutesFollowEnv(t *testing.T) {
 		if status, _ := rawGet(t, prod, path); status != http.StatusNotFound {
 			t.Errorf("生产环境 GET %s = %d，期望 404", path, status)
 		}
+	}
+}
+
+// TestOpenAPIErrorSchema 验证文档里所有失败响应都指向统一信封。
+//
+// 这条是 sanitizeErrorResponses 的事后修补，属于「改了不会报错、只会让文档失真」
+// 的那一类：Fuego 默认挂的 {title,status,detail} 一旦漏改，照着文档写的前端
+// 就会读错字段，而接口本身完全正常。
+func TestOpenAPIErrorSchema(t *testing.T) {
+	srv := newTestServer(t)
+
+	status, raw := rawGet(t, srv, "/openapi.json")
+	if status != http.StatusOK {
+		t.Fatalf("GET /openapi.json = %d，期望 200", status)
+	}
+
+	var spec struct {
+		Paths map[string]map[string]struct {
+			Responses map[string]struct {
+				Content map[string]struct {
+					Schema struct {
+						Ref string `json:"$ref"`
+					} `json:"schema"`
+				} `json:"content"`
+			} `json:"responses"`
+		} `json:"paths"`
+		Components struct {
+			Schemas map[string]json.RawMessage `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		t.Fatalf("解析 OpenAPI 文档: %v", err)
+	}
+
+	if _, ok := spec.Components.Schemas["ErrorBody"]; !ok {
+		t.Fatal("文档里没有 ErrorBody 组件：失败响应的形状会退回 Fuego 默认的 {title,status,detail}")
+	}
+
+	const wantRef = "#/components/schemas/ErrorBody"
+	checked := 0
+	for path, ops := range spec.Paths {
+		for method, op := range ops {
+			for code, resp := range op.Responses {
+				n, err := strconv.Atoi(code)
+				if err != nil || n < 400 {
+					continue
+				}
+				checked++
+				if got := resp.Content["application/json"].Schema.Ref; got != wantRef {
+					t.Errorf("%s %s %s 的失败响应 schema = %q，期望 %q", method, path, code, got, wantRef)
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("文档里一条失败响应声明都没有：说明 errorResponses 的调用漏了")
 	}
 }
 

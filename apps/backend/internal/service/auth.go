@@ -210,6 +210,10 @@ func (s *authService) Logout(ctx context.Context, tokenID string) error {
 // 身份字段（角色、昵称）以数据库为准而不是令牌自述：令牌在有效期内不会变，
 // 而账号可能刚被停用、刚被降级。只在令牌里取角色，等于把「改权限」变成
 // 「等 12 小时自然生效」。
+//
+// 代价是每个请求多一次主键查询（走主键索引，单行）。真要省掉它，可以给账号
+// 状态加一层几十秒 TTL 的缓存，但要接受「停用最多延迟一个 TTL 生效」；
+// 在骨架阶段，正确性比这一次查询更值钱。
 func (s *authService) Verify(ctx context.Context, token string) (*ctxs.Principal, error) {
 	var claims tokenClaims
 	parsed, err := jwt.ParseWithClaims(token, &claims, func(t *jwt.Token) (any, error) {

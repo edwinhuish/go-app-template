@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -20,6 +21,9 @@ type Pagination struct {
 	PageSize int
 }
 
+// 分页的兜底上限。对外契约里的默认值与上限定义在 dto（DefaultPageSize / MaxPageSize），
+// 这里只在「不经过 HTTP 的调用」上兜底，两边数值要跟着一起改——这是刻意的冗余：
+// 仓储是数据访问的最后一道闸，不能假设调用方一定做过 Normalize。
 const (
 	defaultPageSize = 20
 	maxPageSize     = 200
@@ -131,6 +135,13 @@ func (r *Base[T]) UpdateFields(ctx context.Context, id uint, fields map[string]a
 // DeleteByID 执行软删除，历史数据与追溯链不受影响。
 func (r *Base[T]) DeleteByID(ctx context.Context, id uint) error {
 	res := r.conn(ctx).Delete(new(T), id)
+	if isSoftDeleteMarkerConflict(res.Error) {
+		// 软删除标记是 Unix 毫秒，且被排进了「未删才唯一」的复合索引：同一毫秒内
+		// 删掉两条同名记录会撞索引。换一个毫秒重试一次就够，不必把这个每秒最多
+		// 出现一次的巧合暴露成 409——调用方看不出自己哪里做错了。
+		time.Sleep(2 * time.Millisecond)
+		res = r.conn(ctx).Delete(new(T), id)
+	}
 	if res.Error != nil {
 		return fmt.Errorf("删除记录 id=%d: %w", id, res.Error)
 	}
@@ -138,6 +149,15 @@ func (r *Base[T]) DeleteByID(ctx context.Context, id uint) error {
 		return errs.ErrNotFound
 	}
 	return nil
+}
+
+// isSoftDeleteMarkerConflict 判断这次失败是不是「软删除标记撞了唯一索引」。
+//
+// 数据库层已经把约束错误统一翻成 errs.ErrConflict（见 infra/database 的回调），
+// 所以这里按业务码判断，而不是 errors.Is(gorm.ErrDuplicatedKey)——那个值已经被换掉了。
+func isSoftDeleteMarkerConflict(err error) bool {
+	e, ok := errs.From(err)
+	return ok && e.Code == errs.CodeConflict
 }
 
 // FindByID 按主键取一条记录。

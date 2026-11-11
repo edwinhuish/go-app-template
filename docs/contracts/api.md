@@ -22,7 +22,7 @@
 | 项 | 约定 |
 |---|---|
 | 前缀 | 所有业务接口挂在 `/api/v1` 下（路由组 `router.go`，前端 `constants/index.ts` 的 `API_BASE`） |
-| 方法 | 只用 `GET/POST/PUT/DELETE`，不做部分更新语义之外的自定义动词 |
+| 方法 | 只用 `GET/POST/PUT/DELETE`；`PUT` 是全量覆盖，省略的字段按清空处理（想要局部更新就换 `PATCH` 或先读后写） |
 | 请求体 | `application/json`；唯一例外是 `FormData` 上传，由客户端跳过 `Content-Type` 注入 |
 | 鉴权头 | `Authorization: Bearer <token>`；无令牌 / 令牌失效一律 401 |
 | 请求 ID | `X-Request-ID`，前端可不传；后端必生成并写回响应头与响应体 |
@@ -106,6 +106,8 @@
   「业务日期」用 `model.DateOnly` 截到日历日。唯一例外是令牌过期时间 `expires_at`，用 Unix 秒。
 - **标识**：主键 `id` 为数字；关联字段带实体名（`owner_id`），不用 `pid` 这类缩写。
 - **乐观锁**（可选约定）：更新接口回传读到的 `updated_at` 原值；不传则退化为最后写入者获胜。
+- **更新语义**：`PUT` 是全量覆盖——`content` 省略等于清空，而不是「保持原值」。`omitempty`
+  只影响序列化，不影响反序列化，所以「没传」与「传空串」在服务端无法区分。
 - **永不外泄**：密码、内部 DSN、堆栈不进任何响应体。
 
 ## 6. 契约在代码里的锚点
