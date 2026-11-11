@@ -44,7 +44,7 @@ corepack enable pnpm        # 之后 pnpm 按 packageManager 自动取对应版�
 ## 快速开始
 
 ```bash
-task install                  # 装依赖（后端 go mod + 前端 pnpm install，首次会生成 pnpm-lock.yaml）
+task install                  # 装依赖（后端 go mod + 前端 pnpm install）
 task server:tool:air         # 一次性：装后端热重载工具 air（go install，不进 go.mod）
 task server:dev              # 后端 :8080（air 热重载）—— 另开一个终端再跑 task web:dev
 ```
@@ -70,13 +70,8 @@ task server:dev              # 后端 :8080（air 热重载）—— 另开一�
 想推倒重来：
 
 ```bash
-rm -f apps/server/data/app.db*    # WAL 模式有三个文件
-```
-
-然后把锁文件提交上去，CI 才能用 `--frozen-lockfile` 严格安装：
-
-```bash
-git add apps/web/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
+rm -f apps/server/data/app.db*          # WAL 模式有三个文件
+rm -f apps/server/data/cache.snapshot   # 登录态与限流计数的落盘快照，留着会带回来
 ```
 
 ## 目录结构
@@ -256,6 +251,8 @@ app-server 0.1.0
   go:     go1.27.3
 ```
 
+上面是**示例输出**：`go:` 那一行是构建时的工具链版本，不是这个仓库的最低要求（最低要求见前面的前置表）。
+
 | 优先级 | 来源 | 用在哪 |
 |---|---|---|
 | 1（最高） | `-X main.version=…` 链接参数 | 发布流水线把 tag 名注进去；`docker build --build-arg VERSION=` 也走这条 |
@@ -339,7 +336,7 @@ scripts/release-notes.sh v1.3.0 v1.2.0         # 第二个参数留空 = 首次�
   | `build` | `task build` / `task web:build` |
   | `lint` | `task lint` / `task web:lint` |
   | `clean` | `task clean` / `task web:clean` |
-  | `fmt`（可选） | `task fmt` 与 `task lint` 的格式化步骤 |
+  | `fmt`（可选） | `task fmt`；本端没有就跳过（`lint` 只检查，不顺手格式化） |
   | `test`（可选） | `task test` |
 
   目录名若换了，根 `Taskfile.yml` 的 `includes` 里 `web:` 那 4 行要跟着改。
@@ -379,7 +376,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
    | `build` | `task build` / `task server:build` |
    | `test` | `task test` / `task server:test` |
    | `lint` | `task lint` / `task server:lint` |
-   | `fmt` | `task fmt` 与 `task lint` 的格式化步骤 |
+   | `fmt` | `task fmt`（`lint` 只检查，不顺手格式化） |
    | `clean` | `task clean` / `task server:clean` |
 
    目录名若换了，根 `Taskfile.yml` 的 `includes` 里 `server:` 那 4 行要跟着改。
@@ -389,7 +386,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
    | 配置项 | 位置 | 改什么 |
    |---|---|---|
    | 监听端口 | `configs/config*.yaml` | 与前端 `vite.config.ts` 的 proxy target 对上，默认 8080 |
-   | 环境变量前缀 | `internal/config`（或新框架的对应位置） | 换了前缀要同步本文「存储」一节的环境变量示例与 `apps/server/AGENTS.md` 第 5 节 |
+   | 环境变量前缀 | `internal/config`（或新框架的对应位置） | 换了前缀要同步本文「存储」一节的环境变量示例与 `apps/server/AGENTS.md` 第 6 节（配置与密钥） |
    | 配置文件位置与文件名 | `configs/config.yaml` 等 | 本文、`.gitignore` 的 `configs/config.local.yaml`、Taskfile 的 `CONFIG_FILE` 都引用这个路径，换名要一起改 |
    | 数据目录 | `data/` | 默认 SQLite 与缓存快照落在这里，`.gitignore` 已忽略同名的 `data/` |
    | 二进制名 | Taskfile 的 `APP_NAME`、`Dockerfile`、`.github/workflows/release.yml` 的 `APP_NAME` | 本文 `-version` 示例与 `docker build` 引用它 |
