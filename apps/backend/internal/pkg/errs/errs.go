@@ -107,7 +107,6 @@ var (
 	ErrNotFound        = New(CodeNotFound, "资源不存在")
 	ErrUnauthorized    = New(CodeUnauthorized, "未登录或登录状态已失效")
 	ErrForbidden       = New(CodeForbidden, "没有操作权限")
-	ErrInternal        = New(CodeInternal, "服务器内部错误")
 	ErrConflict        = New(CodeConflict, "数据已存在或状态冲突")
 	ErrTooManyRequests = New(CodeTooManyRequests, "请求过于频繁，请稍后再试")
 	ErrTimeout         = New(CodeTimeout, "请求处理超时，请稍后重试")

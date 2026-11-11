@@ -230,31 +230,3 @@ func (r *Base[T]) PaginateOrdered(
 	}
 	return list, total, nil
 }
-
-// PaginateOrderedWithPreload 与 PaginateOrdered 相同，额外地预加载关联。
-//
-// 列表要带明细一起回吐时用它：逐条再查一次关联，会让一页 20 条变成 21 次往返。
-func (r *Base[T]) PaginateOrderedWithPreload(
-	ctx context.Context, p Pagination, order string, preloads []string, scopes ...Scope,
-) ([]T, int64, error) {
-	p = p.normalize()
-
-	var total int64
-	if err := r.conn(ctx).Model(new(T)).Scopes(scopes...).Count(&total).Error; err != nil {
-		return nil, 0, fmt.Errorf("统计记录: %w", err)
-	}
-	if total == 0 {
-		return []T{}, 0, nil
-	}
-
-	q := r.conn(ctx).Model(new(T)).Scopes(scopes...)
-	for _, name := range preloads {
-		q = q.Preload(name)
-	}
-
-	var list []T
-	if err := q.Order(order).Offset(p.Offset()).Limit(p.PageSize).Find(&list).Error; err != nil {
-		return nil, 0, fmt.Errorf("查询记录: %w", err)
-	}
-	return list, total, nil
-}

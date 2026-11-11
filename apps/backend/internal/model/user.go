@@ -8,16 +8,6 @@ const (
 	RoleUser string = "user"
 )
 
-// RoleIsValid 校验角色取值，供账号写入前拦下拼写错误。
-func RoleIsValid(role string) bool {
-	switch role {
-	case RoleAdmin, RoleUser:
-		return true
-	default:
-		return false
-	}
-}
-
 // RoleSeesAllData 报告该角色能否看到全部数据。
 //
 // 认不出的角色一律按「只看自己的」处理：角色是字符串，写错一个字母不会报错，

@@ -54,9 +54,6 @@ func (q *PageQuery) Normalize() {
 	}
 }
 
-// Offset 返回当前页偏移量。
-func (q PageQuery) Offset() int { return int((q.Page - 1) * q.PageSize) }
-
 // PageResult 是分页响应体。
 type PageResult[T any] struct {
 	List     []T   `json:"list"`
