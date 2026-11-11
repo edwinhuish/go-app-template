@@ -158,9 +158,9 @@ tasks:
       - ./{{.BIN_DIR}}/{{.APP_NAME}} -config {{.CONFIG_FILE}}
 
   test:
-    desc: 运行单元测试
+    desc: 运行单元测试（-race：内存缓存与中间件都有并发路径）
     cmds:
-      - go test ./... -count=1
+      - go test -race ./... -count=1
 
   lint:
     desc: 静态检查（go vet）

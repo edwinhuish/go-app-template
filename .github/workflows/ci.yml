@@ -51,8 +51,8 @@ jobs:
             exit 1
           fi
 
-      - name: 单元测试
-        run: go test ./... -count=1
+      - name: 单元测试（含 race 检测）
+        run: go test -race ./... -count=1
 
   web:
     runs-on: ubuntu-latest

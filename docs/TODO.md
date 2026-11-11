@@ -34,9 +34,8 @@
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 5 | `apps/server/Taskfile.yml:160`、`.github/workflows/ci.yml:55` | 测试加 `-race`；内存缓存与中间件都有并发路径，现在只跑串行单测 | 本地与 CI 都跑 `go test -race ./...`，不新增失败 |
-| 6 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数——上一批死代码就是它漏掉的 | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
-| 7 | `AGENTS.md`（第 3 节自检）、`docs/contracts/api.md`（码表） | 两条文档自检（码表行数、`apps/` 内不得外链）目前靠人手跑，改成 CI 的一步 | CI 里直接执行那两条 grep，失败即红 |
+| 5 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数——上一批死代码就是它漏掉的 | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
+| 6 | `AGENTS.md`（第 3 节自检）、`docs/contracts/api.md`（码表） | 两条文档自检（码表行数、`apps/` 内不得外链）目前靠人手跑，改成 CI 的一步 | CI 里直接执行那两条 grep，失败即红 |
 
 ## 3. 已完成
 
