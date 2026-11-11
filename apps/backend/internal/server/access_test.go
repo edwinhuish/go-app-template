@@ -561,6 +561,72 @@ func TestOpenAPIErrorSchema(t *testing.T) {
 	}
 }
 
+// TestOpenAPISuccessEnvelope 验证文档里的成功响应也套着信封。
+//
+// 信封是序列化钩子加的（见 envelope.go），Fuego 按 controller 的返回类型生成
+// 2xx 的 schema 时看不见它，只能事后补。漏补不会报错：文档里会写成一个裸对象，
+// 照着文档写的前端就会把 data 里的字段当顶层字段读。
+func TestOpenAPISuccessEnvelope(t *testing.T) {
+	srv := newTestServer(t)
+
+	status, raw := rawGet(t, srv, "/openapi.json")
+	if status != http.StatusOK {
+		t.Fatalf("GET /openapi.json = %d，期望 200", status)
+	}
+
+	var spec struct {
+		Paths map[string]map[string]struct {
+			Responses map[string]struct {
+				Content map[string]struct {
+					Schema struct {
+						Type       string   `json:"type"`
+						Required   []string `json:"required"`
+						Properties map[string]struct {
+							Type string `json:"type"`
+						} `json:"properties"`
+					} `json:"schema"`
+				} `json:"content"`
+			} `json:"responses"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(raw), &spec); err != nil {
+		t.Fatalf("解析 OpenAPI 文档: %v", err)
+	}
+
+	checked := 0
+	for path, ops := range spec.Paths {
+		for method, op := range ops {
+			for code, resp := range op.Responses {
+				n, err := strconv.Atoi(code)
+				if err != nil || n < 200 || n > 299 {
+					continue
+				}
+				checked++
+
+				schema := resp.Content["application/json"].Schema
+				if schema.Type != "object" {
+					t.Errorf("%s %s %s 的成功响应 schema 不是对象（type=%q）",
+						method, path, code, schema.Type)
+					continue
+				}
+				for _, field := range []string{"code", "message", "data"} {
+					if _, ok := schema.Properties[field]; !ok {
+						t.Errorf("%s %s %s 的成功响应 schema 缺字段 %q：信封没补进文档",
+							method, path, code, field)
+					}
+				}
+				if !slices.Contains(schema.Required, "data") {
+					t.Errorf("%s %s %s 的 data 不是必填：成功响应恒带 data，空列表也是 []",
+						method, path, code)
+				}
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("文档里一条成功响应都没有：说明路由注册那一步没跑")
+	}
+}
+
 // rawGet 不做 JSON 解析：文档、404 与 405 的响应体都不是信封。
 func rawGet(t *testing.T, srv *httptest.Server, path string) (int, string) {
 	t.Helper()

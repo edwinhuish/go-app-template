@@ -1,15 +1,18 @@
-// Package response 统一 HTTP 响应格式。
+// Package response 统一 HTTP 错误响应的写出口。
 //
-// 所有接口（含错误）只有一种形状：
+// 对外只有一种形状（成功那条在 internal/server/envelope.go 的序列化钩子里组装）：
 //
-//	{"code":0,"message":"ok","data":...,"request_id":"..."}
+//	{"code":40101,"message":"...","request_id":"..."}
 //
-// code != 0 时没有 data，前端按 code 分支处理；HTTP 状态码只由业务码推导
+// 失败时没有 data，前端按 code 分支处理；HTTP 状态码只由业务码推导
 // （取 code / 100 的前三位），任何一层都不要为某个错误单独挑状态码。
 //
 // 本包只依赖 net/http 与 pkg/errs，且**不读请求上下文**：请求级数据（request_id）
 // 由调用方从 internal/server/ctxs 取来传进来。pkg 是叶子包，不 import internal
 // 下的其它包；把「存哪儿」的知识留在这里也会逼着它认识 HTTP 层的上下文。
+//
+// 它之所以还在，是因为中间件（鉴权、限流、恢复、体积上限）在 Fuego 的 Flow 之外：
+// 它们拿不到 handler 的返回值与错误，也没有错误序列化器可用，只能自己写响应体。
 package response
 
 import (
@@ -26,20 +29,6 @@ import (
 // contentTypeJSON 是唯一的响应类型。显式带 charset：消费方的解析代码与网关规则
 // 可能按这个字符串匹配，换实现不该改变它。
 const contentTypeJSON = "application/json; charset=utf-8"
-
-// Envelope 是统一响应体。
-//
-// Data 用泛型参数而不是 any：any 会让 OpenAPI 只能生成一个空对象，
-// 前端在文档里看不到 data 的真实结构。泛型实例在反射时是具体类型，能生成完整 schema。
-//
-// 刻意不给 Data 加 omitempty：它可能是切片，而 encoding/json 会把空切片省略掉，
-// 与「list 永远是 [] 而不是 null」的约定冲突。失败响应走 ErrorBody，本来就没有 data。
-type Envelope[T any] struct {
-	Code      int    `json:"code"`
-	Message   string `json:"message"`
-	Data      T      `json:"data"`
-	RequestID string `json:"request_id,omitempty"`
-}
 
 // ErrorBody 是失败响应体：没有 data 字段。
 type ErrorBody struct {
@@ -62,16 +51,6 @@ type RequestInfo struct {
 // 解析层随后也会拿到一个错误）。错误序列化器见到它必须直接返回，
 // 否则会在已写出的响应后面再追加一段 JSON。
 var ErrResponseWritten = errors.New("response: 响应已写出")
-
-// OK 构造成功响应。
-//
-// 成功只有这一种 message：客户端按 code 判断成败，成功时不会去读 message。
-// 「新建」与「查询」的区别只体现在 HTTP 状态码（201 / 200），那个由路由上的
-// OptionDefaultStatusCode 决定，不靠文案表达——文案一多，前端就得为一个没有语义的
-// 字段写分支。
-func OK[T any](requestID string, data T) Envelope[T] {
-	return Envelope[T]{Code: 0, Message: "ok", Data: data, RequestID: requestID}
-}
 
 // WriteBody 只序列化并写响应体，不碰状态码。
 //

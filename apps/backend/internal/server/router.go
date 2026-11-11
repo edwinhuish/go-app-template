@@ -87,7 +87,12 @@ func New(
 	// 文档路由最后注册：它自己也是两条路由，先注册会让它们排在业务路由之前，
 	// 出问题时不容易判断「文档是不是把业务路由盖住了」。
 	fg.RegisterOpenAPIRoutes(fg)
-	sanitizeErrorResponses(fg.OpenAPI.Description())
+
+	// 注册完才有完整的路径表，两处文档修补都只能在这里做：
+	// 失败响应换成 {code,message,request_id}，成功响应换成 {code,message,data,request_id}。
+	spec := fg.OpenAPI.Description()
+	sanitizeErrorResponses(spec)
+	envelopeSuccessResponses(spec)
 
 	// 兜底处理器直接挂在 mux 上，不走 Fuego：它是基础设施而不是业务接口，
 	// 不该出现在文档里，也不该占用一个 operation。注册顺序放在最后，是为了
@@ -218,7 +223,7 @@ func registerRoutes(
 			http.StatusInternalServerError, http.StatusGatewayTimeout),
 	)
 
-	fuego.Get(s, "/healthz", ok(handler.Health),
+	fuego.Get(s, "/healthz", handler.Health,
 		doc("health", "存活检查", "system")...,
 	)
 
@@ -227,7 +232,7 @@ func registerRoutes(
 	loginGuard := fuego.OptionMiddleware(
 		middleware.RateLimit(log, limiter, "login", loginRateLimit, loginRateWindow))
 
-	fuego.Post(s, "/api/v1/auth/login", ok(h.Auth.Login),
+	fuego.Post(s, "/api/v1/auth/login", h.Auth.Login,
 		slices.Concat(
 			doc("login", "账号密码登录", "auth"),
 			[]fuego.RouteOption{loginGuard},
@@ -236,15 +241,15 @@ func registerRoutes(
 		)...,
 	)
 
-	fuego.Get(s, "/api/v1/auth/profile", ok(h.Auth.Profile),
+	fuego.Get(s, "/api/v1/auth/profile", h.Auth.Profile,
 		slices.Concat(doc("getProfile", "当前登录身份", "auth"), secured)...,
 	)
 
-	fuego.Post(s, "/api/v1/auth/logout", ok(h.Auth.Logout),
+	fuego.Post(s, "/api/v1/auth/logout", h.Auth.Logout,
 		slices.Concat(doc("logout", "登出并失效当前会话", "auth"), secured)...,
 	)
 
-	fuego.Get(s, "/api/v1/notes", ok(h.Note.List),
+	fuego.Get(s, "/api/v1/notes", h.Note.List,
 		slices.Concat(
 			doc("listNotes", "分页查询示例记录", "note"),
 			secured,
@@ -257,9 +262,9 @@ func registerRoutes(
 		)...,
 	)
 
-	// 新建用同一个 ok 装饰器：成功文案恒为 "ok"，201 由 OptionDefaultStatusCode
-	// 单独表达（状态码属于 HTTP 语义，文案不属于）。
-	fuego.Post(s, "/api/v1/notes", ok(h.Note.Create),
+	// 新建不需要任何额外的响应包装：信封由序列化钩子统一加（见 envelope.go），
+	// 201 由 OptionDefaultStatusCode 单独表达（状态码属于 HTTP 语义，文案不属于）。
+	fuego.Post(s, "/api/v1/notes", h.Note.Create,
 		slices.Concat(
 			doc("createNote", "新建示例记录", "note"),
 			[]fuego.RouteOption{fuego.OptionDefaultStatusCode(http.StatusCreated)},
@@ -268,22 +273,22 @@ func registerRoutes(
 		)...,
 	)
 
-	fuego.Get(s, "/api/v1/notes/{id}", ok(h.Note.Get),
+	fuego.Get(s, "/api/v1/notes/{id}", h.Note.Get,
 		slices.Concat(doc("getNote", "按 ID 查询示例记录", "note"), secured,
 			errorResponses(http.StatusNotFound))...,
 	)
 
-	fuego.Put(s, "/api/v1/notes/{id}", ok(h.Note.Update),
+	fuego.Put(s, "/api/v1/notes/{id}", h.Note.Update,
 		slices.Concat(doc("updateNote", "更新示例记录（可选乐观锁）", "note"), secured,
 			errorResponses(http.StatusNotFound, http.StatusConflict))...,
 	)
 
-	fuego.Delete(s, "/api/v1/notes/{id}", ok(h.Note.Delete),
+	fuego.Delete(s, "/api/v1/notes/{id}", h.Note.Delete,
 		slices.Concat(doc("deleteNote", "软删除示例记录", "note"), secured,
 			errorResponses(http.StatusNotFound))...,
 	)
 
-	fuego.Get(s, "/api/v1/users", ok(h.User.List),
+	fuego.Get(s, "/api/v1/users", h.User.List,
 		slices.Concat(doc("listUsers", "账号目录（仅管理员）", "user"), adminOnly)...,
 	)
 }

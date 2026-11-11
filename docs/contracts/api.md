@@ -123,7 +123,7 @@
 
 | 契约要素 | 后端 | 前端 |
 |---|---|---|
-| 响应体形状、状态码折叠 | `apps/backend/internal/pkg/response/response.go` | `apps/frontend/src/api/client.ts` |
+| 响应体形状、状态码折叠 | 成功：`apps/backend/internal/server/envelope.go`（序列化钩子）；失败：`apps/backend/internal/pkg/response/response.go` | `apps/frontend/src/api/client.ts` |
 | 业务码表 | `apps/backend/internal/pkg/errs/errs.go` | `apps/frontend/src/api/client.ts`（`ApiError.code`） |
 | 分页参数与形状 | `apps/backend/internal/dto/common.go` | `src/types/index.ts` + `src/constants/index.ts` |
 | 接口前缀、令牌键 | `apps/backend/internal/server/router.go` | `src/constants/index.ts` |

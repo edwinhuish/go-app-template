@@ -146,8 +146,8 @@ handler ──> service ──> repository ──> model
 - 身份只存一份（`ctxs.WithActor`），读取一律 `ctxs.ActorFrom`。存两份的后果是同一个请求
   有两个身份来源，忘写一个就表现为「身份凭空消失」，只能运行时才发现。
   身份类型不在 `service` 里再定义一份：`ctxs` 也不能反过来 import `service`，会成环。
-- **`pkg/response` 不读 context**：它只按给定值拼响应体，`request_id` 由调用方从
-  `ctxs` 取来传进 `response.Fail` / `response.OK`。pkg 是叶子包，读了就得反向依赖 internal。
+- **`pkg/response` 不读 context**：它只按给定值拼失败响应，`request_id` 由调用方从
+  `ctxs` 取来传进 `response.Fail`。pkg 是叶子包，读了就得反向依赖 internal。
 - `repository` 不返回 dto；也不 import `service`。
 - `internal/pkg/*` 不 import `internal` 其它包（`pkg` 是叶子）。
 - **错误只走 `internal/pkg/errs`**：service 返回 `errs.BadRequest/ErrNotFound/...`，
@@ -157,10 +157,15 @@ handler ──> service ──> repository ──> model
   `internal/server/hooks.go` 只负责「怎么写出去」。别把 `WithErrorHandler` 改回恒等函数：
   框架错误会落到序列化器的「非业务错误」分支，400 被折成 500。
 - **handler 只返回业务数据**：签名是 `(业务类型, error)`，函数体里不出现 `response.*`。
-  信封与 `request_id` 由 `internal/server/decorate.go` 的 `ok` 在注册处统一包裹；
+  信封与 `request_id` 由 `internal/server/envelope.go` 里的 Fuego 序列化钩子统一加：
+  钩子是唯一同时握有返回值与请求的位置，所以注册处不用再逐条包一层；
   成功文案恒为 `ok`，201 与 200 的区别只由 `OptionDefaultStatusCode` 表达。
-  `response.Fail` 只给中间件与输出钩子（`internal/server/hooks.go`）用——它们拿不到
-  handler 的返回值，只能自己写响应。
+- **成功信封改了要同时改文档**：Fuego 按 controller 的返回类型生成 2xx 的 schema，
+  钩子里包的信封它看不见，靠 `envelopeSuccessResponses` 事后补（同 `sanitizeErrorResponses`）。
+  漏补不报错，只会让文档写成一个裸对象；`internal/server/access_test.go` 的
+  `TestOpenAPISuccessEnvelope` 兜这一条。
+- `response.Fail` 只给中间件与错误序列化器（`internal/server/hooks.go`）用——它们在
+  Fuego 的 Flow 之外，拿不到 handler 的返回值，只能自己写响应。
 - **每个对外函数带 `ctx context.Context`** 并一路传到底：超时与取消靠它传导到驱动层。
 - **软删除用 `model.DeletedAt`**，唯一索引把 `deleted_at` 排进去（`priority` 见 `model/user.go`）。
 - **跨表写入用 `repository.TxManager`**，不要在 service 里手写 `db.Begin()`。
@@ -179,11 +184,11 @@ handler ──> service ──> repository ──> model
    请求体走框架绑定（`readBody` → `c.Body()`），因此**校验器只有一个**：`handler.Validator()`
    在 `server` 装配时用 `fuego.WithValidator` 注入；不要在别处再 `validator.New()`。
    不要在这里包信封，也不要挑状态码。
-7. `internal/server/router.go`：注册时用 `ok(handler)` 包一层（新建**也是** `ok`，另加
-   `OptionDefaultStatusCode(201)`），再用 `slices.Concat(doc(...), secured)` 复用
-   「鉴权 + 安全声明 + 失败码」；管理端换成 `adminOnly`，其余失败码用 `errorResponses(409)` 补。
-   两处漏挂都不会报错：漏 `secured` 会把需要登录的接口变成公开接口，漏 `ok` 会让响应变成裸对象
-   ——两者都由 `internal/server/envelope_test.go` 兜住，所以别删那个文件。
+7. `internal/server/router.go`：把 handler 直接交给 `fuego.Get/Post/...`（信封是全局限定的，
+   不用逐条包装；新建另加 `OptionDefaultStatusCode(201)`），再用 `slices.Concat(doc(...), secured)`
+   复用「鉴权 + 安全声明 + 失败码」；管理端换成 `adminOnly`，其余失败码用 `errorResponses(409)` 补。
+   漏 `secured` 会把需要登录的接口变成公开接口，且不会报错——由 `internal/server/access_test.go`
+   兜住，所以别删那个文件。
 8. 测试：至少覆盖 service 的校验分支；仓储的特殊查询补集成测试。
 9. 第 4 步定下的字段名，就是第 1 节那份对外承诺的一部分：改名按破坏性变更处理。
 

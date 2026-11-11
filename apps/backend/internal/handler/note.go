@@ -10,7 +10,7 @@ import (
 // NoteHandler 是示例实体的 HTTP 适配层。
 //
 // 每个方法只做三件事：解析参数、调 service、返回业务数据或错误。
-// 信封、request_id、状态码由 server 层的装饰器统一处理（internal/server/decorate.go），
+// 信封、request_id、状态码由 server 层的序列化钩子统一处理（internal/server/envelope.go），
 // 所以这里看不到 response.* 的痕迹。
 type NoteHandler struct {
 	notes service.NoteService
