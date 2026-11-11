@@ -6,7 +6,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -151,9 +150,10 @@ func newFuegoServer(cfg *config.Config, log *slog.Logger, version string) *fuego
 			// 去掉 Fuego 自动加的 X-Powered-By / Server-Timing / Trailer 三个响应头：
 			// 改造前的响应里没有它们，凭空多出来会让网关与客户端的白名单对不上。
 			fuego.WithoutFlowHeaders(),
-			// 错误原样交给序列化器：统一信封的形状由 pkg/response 决定，
-			// 不能被折成 Fuego 自己的 {title,status,detail}。
-			fuego.WithErrorHandler(func(_ context.Context, err error) error { return err }),
+			// 错误归类交给 errorHandler（见 error_handler.go）：框架抛出的带状态码
+			// 错误会被翻成业务错误，而不是在序列化器里折成 500。信封的形状仍由
+			// pkg/response 决定，不会被折成 Fuego 自己的 {title,status,detail}。
+			fuego.WithErrorHandler(errorHandler),
 			// 只承认 JSON。框架默认把 application/xml 也写进文档，而本服务根本没有 XML 分支；
 			// 请求体那边的默认值是 */*，同样会让文档看起来「收什么都行」。
 			fuego.WithRequestContentType("application/json"),
@@ -257,9 +257,9 @@ func registerRoutes(
 		)...,
 	)
 
-	// created 与 OptionDefaultStatusCode 说的是同一件事（新建成功），
-	// 前者决定响应体的 message，后者决定状态码与文档。两者不一致时线格式比对会失败。
-	fuego.Post(s, "/api/v1/notes", created(h.Note.Create),
+	// 新建用同一个 ok 装饰器：成功文案恒为 "ok"，201 由 OptionDefaultStatusCode
+	// 单独表达（状态码属于 HTTP 语义，文案不属于）。
+	fuego.Post(s, "/api/v1/notes", ok(h.Note.Create),
 		slices.Concat(
 			doc("createNote", "新建示例记录", "note"),
 			[]fuego.RouteOption{fuego.OptionDefaultStatusCode(http.StatusCreated)},

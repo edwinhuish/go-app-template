@@ -121,15 +121,15 @@ func TestEnvelopeShape(t *testing.T) {
 		t.Error("登录响应里没有 expires_at")
 	}
 
-	// ---- 新建：201 与 message=created ----
+	// ---- 新建：201，但 message 与其它成功响应一致，仍是 ok ----
 	status, _, doc = call(t, srv, http.MethodPost, "/api/v1/notes",
 		`{"title":"envelope-guard","content":"hello"}`, token)
 	if status != http.StatusCreated {
-		t.Fatalf("新建的状态码 = %d，期望 201", status)
+		t.Fatalf("新建的状态码 = %d，期望 201（由 OptionDefaultStatusCode 决定）", status)
 	}
 	assertKeys(t, doc, successKeys)
-	if doc["message"] != "created" {
-		t.Errorf("新建的 message = %v，期望 created（由 created 装饰器决定）", doc["message"])
+	if doc["message"] != "ok" {
+		t.Errorf("新建的 message = %v，期望 ok（成功文案只有一种，状态码由路由选项表达）", doc["message"])
 	}
 	created, _ := doc["data"].(map[string]any)
 	noteID, _ := created["id"].(float64)

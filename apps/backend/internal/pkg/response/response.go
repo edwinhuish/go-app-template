@@ -63,14 +63,14 @@ type RequestInfo struct {
 // 否则会在已写出的响应后面再追加一段 JSON。
 var ErrResponseWritten = errors.New("response: 响应已写出")
 
-// OK 构造 200 成功响应。
+// OK 构造成功响应。
+//
+// 成功只有这一种 message：客户端按 code 判断成败，成功时不会去读 message。
+// 「新建」与「查询」的区别只体现在 HTTP 状态码（201 / 200），那个由路由上的
+// OptionDefaultStatusCode 决定，不靠文案表达——文案一多，前端就得为一个没有语义的
+// 字段写分支。
 func OK[T any](requestID string, data T) Envelope[T] {
 	return Envelope[T]{Code: 0, Message: "ok", Data: data, RequestID: requestID}
-}
-
-// Created 构造 201 创建成功响应。
-func Created[T any](requestID string, data T) Envelope[T] {
-	return Envelope[T]{Code: 0, Message: "created", Data: data, RequestID: requestID}
 }
 
 // WriteBody 只序列化并写响应体，不碰状态码。

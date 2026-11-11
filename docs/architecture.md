@@ -85,7 +85,7 @@ apps/backend        apps/frontend
    `Auth` 校验令牌并把 `Principal` 写进 context。
 4. **后端**：`handler` 绑定并校验 → `service` 做业务校验与事务选择 → `repository` 写库
    （唯一约束冲突由 `infra/database` 的回调统一翻成 409）。
-5. **回程**：handler 只返回业务数据，由路由注册处的 `ok` / `created` 装饰器包成 `Envelope[T]`，
+5. **回程**：handler 只返回业务数据，由路由注册处的 `ok` 装饰器包成 `Envelope[T]`，
    再由统一序列化器写出 `{code,message,data,request_id}`。
 6. **前端**：`client.ts` 拆包；`code !== 0` 抛 `ApiError`；页面按 `err.message` / `err.code` 处理展示。
 

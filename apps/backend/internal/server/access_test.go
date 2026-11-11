@@ -464,6 +464,47 @@ func TestListQueryParamsMatchSpec(t *testing.T) {
 	}
 }
 
+// TestSerializerIgnoresAcceptHeader 守住自定义序列化器的核心行为。
+//
+// Fuego 默认按 Accept 做内容协商（Accept: application/xml 就回 XML），而这个项目的
+// 契约是「所有接口只返回 JSON」。定制序列化器的意义就在这里：响应形状不取决于
+// 请求头，前端与网关的解析逻辑只有一条路径。
+func TestSerializerIgnoresAcceptHeader(t *testing.T) {
+	srv := newTestServer(t)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/healthz", nil)
+	if err != nil {
+		t.Fatalf("构造请求: %v", err)
+	}
+	req.Header.Set("Accept", "application/xml")
+
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("请求: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("状态码 = %d，期望 200", resp.StatusCode)
+	}
+
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q，期望 application/json（不该按 Accept 协商）", ct)
+	}
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("读响应: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("响应体不是 JSON（说明被框架的 XML 分支接走了）: %v\n原文: %s", err, raw)
+	}
+	if doc["code"] != float64(0) {
+		t.Errorf("code = %v，期望 0", doc["code"])
+	}
+}
+
 // TestOpenAPIErrorSchema 验证文档里所有失败响应都指向统一信封。
 //
 // 这条是 sanitizeErrorResponses 的事后修补，属于「改了不会报错、只会让文档失真」

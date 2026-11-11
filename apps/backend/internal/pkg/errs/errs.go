@@ -81,6 +81,12 @@ func (e *Error) Error() string {
 // Unwrap 暴露底层错误，供 errors.Is 使用。
 func (e *Error) Unwrap() error { return e.err }
 
+// StatusCode 让 *Error 满足 fuego.ErrorWithStatus（见 server.errorHandler 里的编译期断言）。
+//
+// 实现了这个接口，业务错误在 Fuego 的错误管道里就是一等公民：即使有人换掉自定义
+// 错误处理器、回落到框架默认的那一个，状态码也不会一律变成 500。
+func (e *Error) StatusCode() int { return e.Code.HTTPStatus() }
+
 // WithMsg 返回替换文案后的副本，避免修改包级变量。
 func (e *Error) WithMsg(msg string) *Error {
 	cp := *e
@@ -114,3 +120,29 @@ var (
 
 // BadRequest 构造参数错误。
 func BadRequest(msg string) *Error { return New(CodeInvalidParam, msg) }
+
+// FromStatus 把 HTTP 状态码翻成本项目对应的业务错误（文案取码表里的默认值）。
+//
+// 用于「框架或第三方库已经决定了状态码、但没给业务码」的场合（典型是 Fuego 的
+// 参数校验错误）：按状态码映射比折成 500 更接近事实，也比把英文 title 透给前端好。
+// 未知状态码一律当内部错误——宁可报 500，也不要凭空造一个码表里没有的业务码。
+func FromStatus(status int) *Error {
+	switch status {
+	case http.StatusBadRequest:
+		return BadRequest("请求参数格式不正确")
+	case http.StatusUnauthorized:
+		return ErrUnauthorized
+	case http.StatusForbidden:
+		return ErrForbidden
+	case http.StatusNotFound:
+		return ErrNotFound
+	case http.StatusConflict:
+		return ErrConflict
+	case http.StatusTooManyRequests:
+		return ErrTooManyRequests
+	case http.StatusGatewayTimeout:
+		return ErrTimeout
+	default:
+		return New(CodeInternal, "服务器内部错误")
+	}
+}

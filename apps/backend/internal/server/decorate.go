@@ -19,7 +19,11 @@ import (
 // 三个类型参数是为了一个函数吃下所有形状：fuego.ContextNoBody 就是 Context[any, any]，
 // fuego.ContextWithBody[B] 就是 Context[B, any]。
 
-// ok 把只返回业务数据的 handler 适配成 Fuego 要的形状，成功响应的 message 为 "ok"。
+// ok 把只返回业务数据的 handler 适配成 Fuego 要的形状，成功响应的 message 恒为 "ok"。
+//
+// 只有这一个装饰器：成功响应的文案不承载任何语义（客户端按 code 判断成败），
+// 201 与 200 的区别由路由上的 OptionDefaultStatusCode 表达。多一个 created
+// 装饰器只会多一处「状态码与文案要不要同步」的冗余。
 func ok[B, P, T any](
 	h func(fuego.Context[B, P]) (T, error),
 ) func(fuego.Context[B, P]) (response.Envelope[T], error) {
@@ -31,22 +35,5 @@ func ok[B, P, T any](
 			return response.Envelope[T]{}, err
 		}
 		return response.OK(ctxs.RequestID(c.Request().Context()), data), nil
-	}
-}
-
-// created 同 ok，成功响应的 message 为 "created"。
-//
-// 状态码由路由上的 OptionDefaultStatusCode 决定，与这里只负责文案的分工是刻意的：
-// 改状态码要同时想到文档（路由选项），改文案只影响响应体。两者不一致时
-// 线格式比对会失败——这条冗余由测试兜住，而不是靠人记住。
-func created[B, P, T any](
-	h func(fuego.Context[B, P]) (T, error),
-) func(fuego.Context[B, P]) (response.Envelope[T], error) {
-	return func(c fuego.Context[B, P]) (response.Envelope[T], error) {
-		data, err := h(c)
-		if err != nil {
-			return response.Envelope[T]{}, err
-		}
-		return response.Created(ctxs.RequestID(c.Request().Context()), data), nil
 	}
 }

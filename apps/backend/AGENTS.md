@@ -48,7 +48,8 @@
 - `code = 0` 表示成功（HTTP 200，新建 201）；失败时 `data` 省略。
 - **兜底响应不套信封**：未注册的路径回 `404`、路径存在但方法不对回 `405`（带 `Allow`），
   两者都是 `text/plain`。它们不是业务接口，所以不占用码表，也不要改成信封形状。
-- `message` 是给人看的文案，消费方可直接展示。
+- `message` 是给人看的文案，消费方可直接展示；成功时恒为 `ok`（新建也是 `ok`，
+  201 与 200 的差别看状态码，不看文案）。
 - HTTP 状态码**只由业务码推导**：取 `code / 100` 的前三位。handler 不为某个错误单独挑状态码。
 
 业务码表（新增码的前三位必须与 HTTP 状态一致，且只在 `internal/pkg/errs` 定义，不写字面量）：
@@ -151,8 +152,13 @@ handler ──> service ──> repository ──> model
 - `internal/pkg/*` 不 import `internal` 其它包（`pkg` 是叶子）。
 - **错误只走 `internal/pkg/errs`**：service 返回 `errs.BadRequest/ErrNotFound/...`，
   handler 直接 `return` 这个错误，由统一序列化器翻成响应；不要自己挑状态码、不要自己写 JSON。
+  框架自己抛出的错误（`fuego.HTTPError`、`fuego.BadRequestError` 之类）由
+  `internal/server/error_handler.go` 按状态码映射成业务错误——那里是「错误是什么」的唯一入口，
+  `internal/server/hooks.go` 只负责「怎么写出去」。别把 `WithErrorHandler` 改回恒等函数：
+  框架错误会落到序列化器的「非业务错误」分支，400 被折成 500。
 - **handler 只返回业务数据**：签名是 `(业务类型, error)`，函数体里不出现 `response.*`。
-  信封与 `request_id` 由 `internal/server/decorate.go` 的 `ok` / `created` 在注册处统一包裹。
+  信封与 `request_id` 由 `internal/server/decorate.go` 的 `ok` 在注册处统一包裹；
+  成功文案恒为 `ok`，201 与 200 的区别只由 `OptionDefaultStatusCode` 表达。
   `response.Fail` 只给中间件与输出钩子（`internal/server/hooks.go`）用——它们拿不到
   handler 的返回值，只能自己写响应。
 - **每个对外函数带 `ctx context.Context`** 并一路传到底：超时与取消靠它传导到驱动层。
@@ -173,8 +179,8 @@ handler ──> service ──> repository ──> model
    请求体走框架绑定（`readBody` → `c.Body()`），因此**校验器只有一个**：`handler.Validator()`
    在 `server` 装配时用 `fuego.WithValidator` 注入；不要在别处再 `validator.New()`。
    不要在这里包信封，也不要挑状态码。
-7. `internal/server/router.go`：注册时用 `ok(handler)` 包一层（新建用 `created(handler)` 并把
-   `OptionDefaultStatusCode(201)` 一起写上），再用 `slices.Concat(doc(...), secured)` 复用
+7. `internal/server/router.go`：注册时用 `ok(handler)` 包一层（新建**也是** `ok`，另加
+   `OptionDefaultStatusCode(201)`），再用 `slices.Concat(doc(...), secured)` 复用
    「鉴权 + 安全声明 + 失败码」；管理端换成 `adminOnly`，其余失败码用 `errorResponses(409)` 补。
    两处漏挂都不会报错：漏 `secured` 会把需要登录的接口变成公开接口，漏 `ok` 会让响应变成裸对象
    ——两者都由 `internal/server/envelope_test.go` 兜住，所以别删那个文件。
