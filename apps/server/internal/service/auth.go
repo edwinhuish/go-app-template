@@ -25,6 +25,8 @@ const (
 	loginFailPrefix  = "login_fail:"
 	// loginFailWindow 是登录失败计数的滑动窗口。
 	loginFailWindow = 15 * time.Minute
+	// loginFailResetAttempts 是登录成功后清理失败计数的尝试次数（含首次）。
+	loginFailResetAttempts = 2
 )
 
 // errLoginTooManyFails 是「猜错太多次」的统一出口。
@@ -181,7 +183,7 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Log
 		strconv.FormatUint(uint64(user.ID), 10), s.cfg.Expire); err != nil {
 		return nil, errs.Wrap(err, errs.CodeInternal, "写入会话失败")
 	}
-	_ = s.sessions.Del(ctx, failKey)
+	s.resetLoginFail(ctx, failKey)
 
 	s.log.Info("用户登录", "user_id", user.ID, "username", user.Username)
 
@@ -284,6 +286,23 @@ func (s *authService) markLoginFail(ctx context.Context, key string) int64 {
 		return 0
 	}
 	return n
+}
+
+// resetLoginFail 清掉失败计数。清不掉不当成登录失败：令牌已经签出、会话已经落库，
+// 为了一次缓存删除把「登录成功」翻成 500，用户只会再试一次，问题反而更糟。
+//
+// 但也不能静默吞掉。这一步失败的可见症状是「密码明明对了，可能立刻又被告知失败
+// 次数过多」——用户无从解释，运维在日志里也找不到线索，只能等窗口自然过期。
+// 所以重试一次（缓存抖动多为瞬时），仍失败就打一条 warn，带上 key 与错误。
+func (s *authService) resetLoginFail(ctx context.Context, key string) {
+	var err error
+	for attempt := 0; attempt < loginFailResetAttempts; attempt++ {
+		if err = s.sessions.Del(ctx, key); err == nil {
+			return
+		}
+	}
+	s.log.Warn("清理登录失败计数失败，该账号可能在窗口期内被误锁",
+		"key", key, "attempts", loginFailResetAttempts, "err", err)
 }
 
 // locked 报告该账号是否已经用完猜密码的次数。缓存读失败时不锁定：

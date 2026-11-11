@@ -6,9 +6,12 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -64,6 +67,9 @@ func (f *fakeUserRepo) List(context.Context) ([]model.User, error) { return nil,
 type fakeCache struct {
 	mu   sync.Mutex
 	vals map[string]string
+	// delErr 非 nil 时 Del 一律失败，用来构造「缓存清不掉」的分支；delCalls 记录尝试次数。
+	delErr   error
+	delCalls int
 }
 
 func newFakeCache() *fakeCache { return &fakeCache{vals: map[string]string{}} }
@@ -88,6 +94,10 @@ func (c *fakeCache) Set(_ context.Context, key, value string, _ time.Duration) e
 func (c *fakeCache) Del(_ context.Context, keys ...string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.delCalls++
+	if c.delErr != nil {
+		return c.delErr
+	}
 	for _, k := range keys {
 		delete(c.vals, k)
 	}
@@ -275,5 +285,44 @@ func TestLoginRejectsBeforePasswordCheck(t *testing.T) {
 	e, ok := errs.From(err)
 	if !ok || e.Code != errs.CodeForbidden {
 		t.Fatalf("err = %v，期望 403（次数过多）", err)
+	}
+}
+
+// TestLoginSurvivesFailCounterResetError 守住「清理失败计数失败不推翻本次登录」。
+//
+// 这一步失败的可见症状很隐蔽：密码对了、令牌也签出来了，但下一次登录可能立刻被告知
+// 「失败次数过多」——用户无从解释，运维在日志里也没有线索，只能等窗口自然过期。
+// 所以两条都要钉住：不返回错误，且日志里看得见。
+func TestLoginSurvivesFailCounterResetError(t *testing.T) {
+	repo := newFakeUserRepo()
+	u := enabledUser(11)
+	repo.add(u)
+
+	c := newFakeCache()
+	c.delErr = errors.New("缓存连接断开")
+
+	var logs bytes.Buffer
+	svc := NewAuthService(repo, c,
+		AuthConfig{Secret: testSecret, Expire: time.Hour, MaxLoginFail: 5},
+		WithAuthLogger(slog.New(slog.NewTextHandler(&logs, nil))),
+	)
+
+	hash, err := svc.HashPassword("pw-123456")
+	if err != nil {
+		t.Fatalf("生成密码摘要: %v", err)
+	}
+	u.Password = hash
+
+	resp, err := svc.Login(context.Background(),
+		dto.LoginRequest{Username: u.Username, Password: "pw-123456"})
+	if err != nil || resp == nil || resp.Token == "" {
+		t.Fatalf("Login = %+v, %v；清理失败不该把登录变成错误", resp, err)
+	}
+
+	if c.delCalls != 2 {
+		t.Errorf("Del 尝试 %d 次，期望 2（首次 + 重试一次）", c.delCalls)
+	}
+	if !strings.Contains(logs.String(), "清理登录失败计数失败") {
+		t.Errorf("日志里没有清理失败的记录：%q", logs.String())
 	}
 }
