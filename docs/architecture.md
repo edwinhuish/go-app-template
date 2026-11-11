@@ -8,7 +8,7 @@
 ```
 .
 ├── apps/
-│   ├── backend/           Go 服务（gin + gorm）
+│   ├── backend/           Go 服务（Fuego + gorm）
 │   │   ├── AGENTS.md      后端规范正本
 │   │   └── deployments/   本端开发环境用的容器（docker compose）
 │   └── frontend/          React 管理端（Vite + TS + antd）
@@ -85,11 +85,17 @@ apps/backend        apps/frontend
    `Auth` 校验令牌并把 `Principal` 写进 context。
 4. **后端**：`handler` 绑定并校验 → `service` 做业务校验与事务选择 → `repository` 写库
    （唯一约束冲突由 `infra/database` 的回调统一翻成 409）。
-5. **回程**：`response.Created` 写出 `{code,message,data,request_id}`。
+5. **回程**：handler 返回 `response.Created(...)` 构造的 `Envelope[T]`，由统一序列化器写出
+   `{code,message,data,request_id}`。
 6. **前端**：`client.ts` 拆包；`code !== 0` 抛 `ApiError`；页面按 `err.message` / `err.code` 处理展示。
 
-错误只在两处翻译：后端 service 返回 `errs.*Error`，handler 交给 `response.Fail` 折叠成状态码；
+错误只在两处翻译：后端 service 返回 `errs.*Error`，handler 把它原样 `return` 出去，
+统一错误序列化器再折叠成状态码（非业务错误一律 500，真实原因只进日志）；
 前端 `client.ts` 把非 0 的 `code` 折叠成异常。两端都不在业务代码里拼状态码、解析错误码。
+
+同一个动作里还会生成 OpenAPI 文档：路由注册时同步写入 spec，`GET /openapi.json` 与
+`GET /docs` 可读（仅非 release 环境暴露）。既是给消费方的接口说明，也让「代码改了文档没改」
+这种中间状态不存在。
 
 ## 5. 分层
 

@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 
 	"example.com/app/internal/dto"
 	"example.com/app/internal/pkg/errs"
@@ -21,45 +21,51 @@ func NewAuthHandler(auth service.AuthService) *AuthHandler {
 }
 
 // Login 处理 POST /auth/login。
-func (h *AuthHandler) Login(c *gin.Context) {
-	var req dto.LoginRequest
-	if !bindJSON(c, &req) {
-		return
+//
+// 请求体类型写在泛型参数上（ContextWithBody[dto.LoginRequest]）：
+// 框架据此生成 OpenAPI 的 requestBody schema，前端在文档里能看到字段与约束。
+// 真正的解析与校验仍走 bindJSON —— 框架自带的绑定会把错误折成它自己的文案。
+func (h *AuthHandler) Login(
+	c fuego.ContextWithBody[dto.LoginRequest],
+) (response.Envelope[*dto.LoginResponse], error) {
+	req := &dto.LoginRequest{}
+	if err := bindJSON(c.Response(), c.Request(), req); err != nil {
+		return fail[*dto.LoginResponse](err)
 	}
 
-	res, err := h.auth.Login(c.Request.Context(), req)
+	res, err := h.auth.Login(c.Request().Context(), *req)
 	if err != nil {
-		response.Fail(c, err)
-		return
+		return fail[*dto.LoginResponse](err)
 	}
-	response.OK(c, res)
+	return response.OK(requestID(c.Request()), res), nil
 }
 
 // Logout 处理 POST /auth/logout，删除服务端会话。
-func (h *AuthHandler) Logout(c *gin.Context) {
-	p, ok := middleware.PrincipalFrom(c)
+func (h *AuthHandler) Logout(
+	c fuego.ContextNoBody,
+) (response.Envelope[dto.LogoutResult], error) {
+	p, ok := middleware.PrincipalFrom(c.Request().Context())
 	if !ok {
-		response.Fail(c, errs.ErrUnauthorized)
-		return
+		return fail[dto.LogoutResult](errs.ErrUnauthorized)
 	}
-	if err := h.auth.Logout(c.Request.Context(), p.TokenID); err != nil {
-		response.Fail(c, err)
-		return
+
+	if err := h.auth.Logout(c.Request().Context(), p.TokenID); err != nil {
+		return fail[dto.LogoutResult](err)
 	}
-	response.OK(c, gin.H{"logged_out": true})
+	return response.OK(requestID(c.Request()), dto.LogoutResult{LoggedOut: true}), nil
 }
 
 // Profile 处理 GET /auth/profile，返回当前登录身份。
-func (h *AuthHandler) Profile(c *gin.Context) {
-	p, ok := middleware.PrincipalFrom(c)
+func (h *AuthHandler) Profile(c fuego.ContextNoBody) (response.Envelope[dto.UserInfo], error) {
+	p, ok := middleware.PrincipalFrom(c.Request().Context())
 	if !ok {
-		response.Fail(c, errs.ErrUnauthorized)
-		return
+		return fail[dto.UserInfo](errs.ErrUnauthorized)
 	}
-	response.OK(c, dto.UserInfo{
+
+	return response.OK(requestID(c.Request()), dto.UserInfo{
 		ID:       p.UserID,
 		Username: p.Username,
 		Nickname: p.Nickname,
 		Role:     p.Role,
-	})
+	}), nil
 }

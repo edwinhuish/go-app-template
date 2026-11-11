@@ -97,7 +97,7 @@ git add apps/frontend/pnpm-lock.yaml && git commit -m "chore: add pnpm lockfile"
 │   │   │   ├── model/            表结构
 │   │   │   ├── pkg/              errs / response / dialect（叶子依赖）
 │   │   │   ├── repository/       数据访问（接口 + gorm 实现）
-│   │   │   ├── server/           gin 引擎、路由表、middleware
+│   │   │   ├── server/           Fuego 引擎、路由表、middleware、OpenAPI 生成
 │   │   │   └── service/          业务规则、事务、模型↔契约互转
 │   │   ├── deployments/          本端开发环境用的容器（PostgreSQL / MySQL / Redis）
 │   │   ├── .air.toml             热重载配置
@@ -404,7 +404,7 @@ Vite 的 proxy target，二选一，不要两边都改）。
 ### 替换之后
 
 - **改那一端的规范**：`apps/backend/AGENTS.md` / `apps/frontend/AGENTS.md` 是那一端的规范正本，
-  旧的是 gin + gorm 分层、React + antd 约定；新工程换了框架，就把这份文件改成新工程的形状。
+  旧的是 Fuego + gorm 分层、React + antd 约定；新工程换了框架，就把这份文件改成新工程的形状。
   留着过时的正本比没有更糟——AI 会照着它改。
   改的时候保持**自包含**：不链接根目录或另一端的文档，需要的接口形状、任务名直接写在里面。
 - **保持契约单向**：新的一端只通过 `docs/contracts/api.md` 与另一端见面，不要为了省事让它

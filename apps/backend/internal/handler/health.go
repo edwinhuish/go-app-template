@@ -3,8 +3,9 @@ package handler
 import (
 	"time"
 
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 
+	"example.com/app/internal/dto"
 	"example.com/app/internal/pkg/response"
 )
 
@@ -12,9 +13,9 @@ import (
 //
 // 只证明「进程还能接请求」；要证明依赖可用（数据库、缓存），
 // 应另开一个 /readyz 并在那里 ping，避免健康检查把重启放大成雪崩。
-func Health(c *gin.Context) {
-	response.OK(c, gin.H{
-		"status": "ok",
-		"time":   time.Now().Format(time.RFC3339),
-	})
+func Health(c fuego.ContextNoBody) (response.Envelope[dto.HealthStatus], error) {
+	return response.OK(requestID(c.Request()), dto.HealthStatus{
+		Status: "ok",
+		Time:   time.Now().Format(time.RFC3339),
+	}), nil
 }

@@ -77,6 +77,23 @@
 **改了 `internal/dto` 的字段名或 `internal/pkg/errs` 的码，就是在改这份承诺**：同一个提交里更新本节，
 并在提交信息里点名「对外接口变更」，让消费方知道要跟。
 
+### 自描述文档
+
+OpenAPI 文档由路由注册同一处生成，不手写 yaml、不提交静态产物：
+
+| 项 | 说明 |
+|---|---|
+| 生成时机 | 注册路由时同步写入 spec。加一条路由就多一条文档，不存在「代码改了文档没改」 |
+| 访问入口 | `GET /openapi.json`（文档本体）、`GET /docs`（可交互页面） |
+| 暴露条件 | 仅 `http.mode != release` 且 `app.env != prod`。生产不注册这两个路由，对外接口集合与无文档时一致 |
+| 字段约束 | dto 的 `binding` 标签同时驱动运行时校验与 schema（`min`/`max`/`oneof`/`email`） |
+| 必填 | 由 json 标签的 `omitempty` 决定（序列化语义） |
+| 失败响应 | 用 `errorResponses(400, 401, 404 ...)` 逐条声明，文案取自本节码表 |
+
+写请求结构体时有一条容易踩的：**`binding` 里没有 `required` 的字段，json 标签必须带 `omitempty`**。
+不带的话文档会把它标成必填，而实际不传也能通过——文档比没有文档更容易误导人。
+这类结构体只在请求方向使用，加 `omitempty` 不改变对外线格式。
+
 ## 2. 先确认改的是哪一层
 
 | 你要做的事 | 落点 | 不要碰 |
@@ -101,12 +118,13 @@ handler ──> service ──> repository ──> model
 ## 3. 硬性约束
 
 - `dto` 不 import `model`；互转写在 service 的 `toXxxItem` 里。
-- `service` 不 import gin；要当前用户，用 `service.ActorFrom(ctx)`。
+- `service` 不 import HTTP 框架（Fuego / `net/http`）；要当前用户，用 `service.ActorFrom(ctx)`。
 - `repository` 不返回 dto；也不 import `service`。
 - `internal/pkg/*` 不 import `internal` 其它包（`pkg` 是叶子）。
-- **错误只走 `internal/pkg/errs`**：service 返回 `errs.BadRequest/ErrNotFound/...`；
-  handler 统一 `response.Fail`，不要自己写 `c.JSON(400, ...)`。
-- **响应只用 `response.OK/Created/Fail`**：形状与状态码推导按第 1 节，不要在 handler 里重写。
+- **错误只走 `internal/pkg/errs`**：service 返回 `errs.BadRequest/ErrNotFound/...`，
+  handler 直接 `return` 这个错误，由统一序列化器翻成响应；不要自己挑状态码、不要自己写 JSON。
+- **成功响应只用 `response.OK/Created`**：返回 `response.Envelope[T]`，形状按第 1 节。
+  `response.Fail` 只给中间件用——它们拿不到 handler 的返回值，只能自己写响应。
 - **每个对外函数带 `ctx context.Context`** 并一路传到底：超时与取消靠它传导到驱动层。
 - **软删除用 `model.DeletedAt`**，唯一索引把 `deleted_at` 排进去（`priority` 见 `model/user.go`）。
 - **跨表写入用 `repository.TxManager`**，不要在 service 里手写 `db.Begin()`。
@@ -122,7 +140,9 @@ handler ──> service ──> repository ──> model
    `XxxListQuery`（嵌入 `PageQuery`）。
 5. `internal/service/xxx.go`：接口 + `NewXxxService` + `XxxOption`；业务校验、事务、模型↔契约。
 6. `internal/handler/xxx.go`：`bindJSON`/`bindQuery`/`parseID` → 调 service → `response.*`。
-7. `internal/server/router.go`：需要登录的挂进 `secured` 组；管理端接口再叠 `middleware.RequireAdmin()`。
+7. `internal/server/router.go`：用 `slices.Concat(doc(...), secured)` 复用「鉴权 + 安全声明 +
+   失败码」；管理端换成 `adminOnly`，多出来的失败码用 `errorResponses(409)` 这类补上。
+   漏挂 `secured` 不会报错，只会把一条需要登录的接口变成公开接口。
 8. 测试：至少覆盖 service 的校验分支；仓储的特殊查询补集成测试。
 9. 第 4 步定下的字段名，就是第 1 节那份对外承诺的一部分：改名按破坏性变更处理。
 

@@ -1,65 +1,100 @@
 // Package handler 是 HTTP 适配层。
 //
-// 只做三件事：解析参数、调用 service、写响应。
+// 只做三件事：解析参数、调用 service、返回统一响应体。
 // 任何业务判断都不应出现在这里——它决定的是「怎么把 HTTP 翻译成一次服务调用」，
 // 而不是「这件事该不该做」。
+//
+// 本包依赖 Fuego 的上下文类型，但只用到三样东西：取请求、取响应、取路径参数。
+// 解析与校验一律走本文件里的 bindJSON / bindQuery，而不是框架自带的绑定：
+// 那套绑定会把错误折叠成它自己的英文提示，与既有文案对不上。
 package handler
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"github.com/gorilla/schema"
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
 	"example.com/app/internal/server/middleware"
 )
 
-// parseID 解析路径上的 :id 参数。
-func parseID(c *gin.Context) (uint, bool) {
-	return parseUintParam(c, "id", "资源")
+// validate 与改造前用的是同一套校验语义：go-playground/validator，
+// 但标签名必须显式改成 binding —— 它的默认标签名是 validate，
+// 不改的话 dto 上的 binding 约束会被静默忽略，校验看上去「通过了」。
+var validate = newValidator()
+
+func newValidator() *validator.Validate {
+	v := validator.New()
+	v.SetTagName("binding")
+	return v
 }
 
-// parseUintParam 解析路径上的指定参数名，供子资源用（如 :itemId）。
+// queryDecoder 按 dto 上的 form 标签解析查询参数（嵌入的 PageQuery 一并处理）。
+var queryDecoder = newQueryDecoder()
+
+func newQueryDecoder() *schema.Decoder {
+	d := schema.NewDecoder()
+	d.SetAliasTag("form")
+	// 未知参数不报错：前端多带一个时间戳之类的参数不该变成 400。
+	d.IgnoreUnknownKeys(true)
+	return d
+}
+
+// fail 返回零值响应加错误。
 //
-// 子资源路径上同时有 :id 与 :itemId，少一个就会把子资源 id 当成主资源 id 用，
-// 而那种错误从响应里看不出来。
-func parseUintParam(c *gin.Context, name, label string) (uint, bool) {
-	raw := c.Param(name)
+// handler 里出错一律用它，免得每个分支都写一遍 response.Envelope[X]{}；
+// 错误的 HTTP 状态由统一信封决定，handler 不挑状态码。
+func fail[T any](err error) (response.Envelope[T], error) {
+	return response.Envelope[T]{}, err
+}
+
+// bindJSON 把请求体解成 dst 并校验。
+//
+// 返回的可能是 *errs.Error（交给框架输出），也可能是 response.ErrResponseWritten
+// （413 已经写出，不能再写第二次）。
+func bindJSON(w http.ResponseWriter, r *http.Request, dst any) error {
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		// 请求体超过 BodyLimit 时，读错误会带着「解析失败」的外观。
+		if middleware.HandleTooLarge(w, err) {
+			return response.ErrResponseWritten
+		}
+		return errs.BadRequest(validationMessage(err))
+	}
+	if err := validate.Struct(dst); err != nil {
+		return errs.BadRequest(validationMessage(err))
+	}
+	return nil
+}
+
+// bindQuery 把查询参数解成 dst 并校验。
+func bindQuery(r *http.Request, dst any) error {
+	if err := queryDecoder.Decode(dst, r.URL.Query()); err != nil {
+		return errs.BadRequest(validationMessage(err))
+	}
+	if err := validate.Struct(dst); err != nil {
+		return errs.BadRequest(validationMessage(err))
+	}
+	return nil
+}
+
+// parseID 解析路径上的 id 参数。0 与非数字一律当参数错误，而不是去查一条不存在的记录：
+// 后者会返回 404，让人以为是数据没了。
+func parseID(raw string) (uint, error) {
 	id, err := strconv.ParseUint(raw, 10, 64)
 	if err != nil || id == 0 {
-		response.Fail(c, errs.BadRequest("无效的"+label+" ID"))
-		return 0, false
+		return 0, errs.BadRequest("无效的资源 ID")
 	}
-	return uint(id), true
+	return uint(id), nil
 }
 
-// bindJSON 绑定并校验请求体，失败时已写出响应。
-func bindJSON(c *gin.Context, dst any) bool {
-	if err := c.ShouldBindJSON(dst); err != nil {
-		// 请求体超过 BodyLimit 时，读错误会带着「解析失败」的外观。
-		// 翻成 413：400 的意思是「你的请求写错了」，实际是「太大了」，
-		// 两种提示对应的处理动作完全不同（改内容 vs 拆批次）。
-		if middleware.HandleBodyTooLarge(c, err) {
-			return false
-		}
-		response.Fail(c, errs.BadRequest(validationMessage(err)))
-		return false
-	}
-	return true
-}
-
-// bindQuery 绑定并校验查询参数，失败时已写出响应。
-func bindQuery(c *gin.Context, dst any) bool {
-	if err := c.ShouldBindQuery(dst); err != nil {
-		response.Fail(c, errs.BadRequest(validationMessage(err)))
-		return false
-	}
-	return true
-}
+// requestID 取当前请求的追踪 ID，写在响应体的 request_id 里。
+func requestID(r *http.Request) string { return response.RequestIDFrom(r.Context()) }
 
 // validationMessage 把校验错误翻译成可定位的中文提示。
 //

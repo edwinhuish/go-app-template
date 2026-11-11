@@ -1,6 +1,6 @@
 // Package service 是业务层。
 //
-// 它只依赖 repository 接口、cache 接口和 dto，不认识 gin，也不写 SQL：
+// 它只依赖 repository 接口、cache 接口和 dto，不认识 HTTP 框架，也不写 SQL：
 // 换 HTTP 框架、换数据库都不需要改这一层。
 //
 // 每个服务都遵循同一套写法：

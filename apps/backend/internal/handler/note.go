@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 
 	"example.com/app/internal/dto"
 	"example.com/app/internal/pkg/response"
@@ -19,80 +19,81 @@ func NewNoteHandler(notes service.NoteService) *NoteHandler {
 }
 
 // List 处理 GET /notes。
-func (h *NoteHandler) List(c *gin.Context) {
+func (h *NoteHandler) List(
+	c fuego.ContextNoBody,
+) (response.Envelope[*dto.PageResult[dto.NoteItem]], error) {
 	var q dto.NoteListQuery
-	if !bindQuery(c, &q) {
-		return
+	if err := bindQuery(c.Request(), &q); err != nil {
+		return fail[*dto.PageResult[dto.NoteItem]](err)
 	}
 
-	res, err := h.notes.List(c.Request.Context(), q)
+	res, err := h.notes.List(c.Request().Context(), q)
 	if err != nil {
-		response.Fail(c, err)
-		return
+		return fail[*dto.PageResult[dto.NoteItem]](err)
 	}
-	response.OK(c, res)
+	return response.OK(requestID(c.Request()), res), nil
 }
 
-// Get 处理 GET /notes/:id。
-func (h *NoteHandler) Get(c *gin.Context) {
-	id, ok := parseID(c)
-	if !ok {
-		return
+// Get 处理 GET /notes/{id}。
+func (h *NoteHandler) Get(c fuego.ContextNoBody) (response.Envelope[*dto.NoteItem], error) {
+	id, err := parseID(c.PathParam("id"))
+	if err != nil {
+		return fail[*dto.NoteItem](err)
 	}
 
-	res, err := h.notes.Get(c.Request.Context(), id)
+	res, err := h.notes.Get(c.Request().Context(), id)
 	if err != nil {
-		response.Fail(c, err)
-		return
+		return fail[*dto.NoteItem](err)
 	}
-	response.OK(c, res)
+	return response.OK(requestID(c.Request()), res), nil
 }
 
 // Create 处理 POST /notes。
-func (h *NoteHandler) Create(c *gin.Context) {
-	var req dto.NoteCreateRequest
-	if !bindJSON(c, &req) {
-		return
+func (h *NoteHandler) Create(
+	c fuego.ContextWithBody[dto.NoteCreateRequest],
+) (response.Envelope[*dto.NoteItem], error) {
+	req := &dto.NoteCreateRequest{}
+	if err := bindJSON(c.Response(), c.Request(), req); err != nil {
+		return fail[*dto.NoteItem](err)
 	}
 
-	res, err := h.notes.Create(c.Request.Context(), req)
+	res, err := h.notes.Create(c.Request().Context(), *req)
 	if err != nil {
-		response.Fail(c, err)
-		return
+		return fail[*dto.NoteItem](err)
 	}
-	response.Created(c, res)
+	return response.Created(requestID(c.Request()), res), nil
 }
 
-// Update 处理 PUT /notes/:id。
-func (h *NoteHandler) Update(c *gin.Context) {
-	id, ok := parseID(c)
-	if !ok {
-		return
-	}
-
-	var req dto.NoteUpdateRequest
-	if !bindJSON(c, &req) {
-		return
-	}
-
-	res, err := h.notes.Update(c.Request.Context(), id, req)
+// Update 处理 PUT /notes/{id}。
+func (h *NoteHandler) Update(
+	c fuego.ContextWithBody[dto.NoteUpdateRequest],
+) (response.Envelope[*dto.NoteItem], error) {
+	id, err := parseID(c.PathParam("id"))
 	if err != nil {
-		response.Fail(c, err)
-		return
+		return fail[*dto.NoteItem](err)
 	}
-	response.OK(c, res)
+
+	req := &dto.NoteUpdateRequest{}
+	if err := bindJSON(c.Response(), c.Request(), req); err != nil {
+		return fail[*dto.NoteItem](err)
+	}
+
+	res, err := h.notes.Update(c.Request().Context(), id, *req)
+	if err != nil {
+		return fail[*dto.NoteItem](err)
+	}
+	return response.OK(requestID(c.Request()), res), nil
 }
 
-// Delete 处理 DELETE /notes/:id（软删除）。
-func (h *NoteHandler) Delete(c *gin.Context) {
-	id, ok := parseID(c)
-	if !ok {
-		return
+// Delete 处理 DELETE /notes/{id}（软删除）。
+func (h *NoteHandler) Delete(c fuego.ContextNoBody) (response.Envelope[dto.NoteDeleted], error) {
+	id, err := parseID(c.PathParam("id"))
+	if err != nil {
+		return fail[dto.NoteDeleted](err)
 	}
 
-	if err := h.notes.Delete(c.Request.Context(), id); err != nil {
-		response.Fail(c, err)
-		return
+	if err := h.notes.Delete(c.Request().Context(), id); err != nil {
+		return fail[dto.NoteDeleted](err)
 	}
-	response.OK(c, gin.H{"deleted": true})
+	return response.OK(requestID(c.Request()), dto.NoteDeleted{Deleted: true}), nil
 }

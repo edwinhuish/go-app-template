@@ -7,8 +7,8 @@ type actorKey struct{}
 
 // WithActor 把当前登录身份挂到 context 上。
 //
-// 为什么要 gin.Context 之外再复制一份：gin 只陪到 handler，进了 service 就只剩
-// context.Context。而「谁能看全部数据」「这条记录归谁」这类判断属于业务规则，
+// 为什么要在 HTTP 上下文之外再复制一份：框架的上下文只陪到 handler，进了 service
+// 就只剩 context.Context。而「谁能看全部数据」「这条记录归谁」这类判断属于业务规则，
 // 只能靠参数一路透传才不会丢——每加一处判断就改一次方法签名，很快就没人愿意加了。
 func WithActor(ctx context.Context, p *Principal) context.Context {
 	if p == nil {

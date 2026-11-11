@@ -55,7 +55,7 @@ type Config struct {
 type App struct {
 	// Name 用于日志、缓存前缀等处的标识，换成自己的项目名即可。
 	Name string `yaml:"name"`
-	// Env 取 dev | prod，影响 gin 模式与若干安全校验。
+	// Env 取 dev | prod，影响若干启动期安全校验。
 	Env string `yaml:"env"`
 
 	// SeedAdminUsername / SeedAdminPassword 仅在 database.seed=true 时生效，

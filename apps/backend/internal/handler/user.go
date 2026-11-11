@@ -1,8 +1,9 @@
 package handler
 
 import (
-	"github.com/gin-gonic/gin"
+	"github.com/go-fuego/fuego"
 
+	"example.com/app/internal/dto"
 	"example.com/app/internal/pkg/response"
 	"example.com/app/internal/service"
 )
@@ -18,11 +19,10 @@ func NewUserHandler(users service.UserService) *UserHandler {
 }
 
 // List 处理 GET /users。路由上已挂了 RequireAdmin，越权由中间件拦住。
-func (h *UserHandler) List(c *gin.Context) {
-	res, err := h.users.List(c.Request.Context())
+func (h *UserHandler) List(c fuego.ContextNoBody) (response.Envelope[[]dto.UserItem], error) {
+	res, err := h.users.List(c.Request().Context())
 	if err != nil {
-		response.Fail(c, err)
-		return
+		return fail[[]dto.UserItem](err)
 	}
-	response.OK(c, res)
+	return response.OK(requestID(c.Request()), res), nil
 }

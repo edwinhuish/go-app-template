@@ -64,7 +64,7 @@ func run() error {
 		return err
 	}
 
-	app, err := bootstrap.New(cfg)
+	app, err := bootstrap.New(cfg, version)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:    cfg.HTTP.Addr,
-		Handler: app.Engine,
+		Handler: app.Server.Handler(),
 		// 读请求头的上限：挡住 slowloris 那类「慢慢发头、一直占着连接」的客户端。
 		ReadHeaderTimeout: 10 * time.Second,
 		// 读整个请求（含 body）的上限。它挡的是「发得极慢」，不是「发得很大」——

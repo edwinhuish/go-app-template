@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"example.com/app/internal/config"
@@ -26,7 +25,8 @@ import (
 // App 持有进程级资源，供 main 启动与优雅退出使用。
 type App struct {
 	Config *config.Config
-	Engine *gin.Engine
+	// Server 是 HTTP 层的成品（路由 + 中间件 + 文档），对外只给 Handler()。
+	Server *server.Server
 	DB     *gorm.DB
 	Cache  cache.Cache
 	Log    *slog.Logger
@@ -42,7 +42,9 @@ var models = []any{
 }
 
 // New 完成全部装配。任何一步失败都直接返回，避免带病启动。
-func New(cfg *config.Config) (*App, error) {
+//
+// version 由 main 传入（构建期注入），只用于 OpenAPI 文档里的版本号。
+func New(cfg *config.Config, version string) (*App, error) {
 	log := logger.New(cfg.Log.Level, cfg.Log.Format)
 	slog.SetDefault(log)
 
@@ -83,13 +85,13 @@ func New(cfg *config.Config) (*App, error) {
 	userSvc := service.NewUserService(userRepo, service.WithUserLogger(log))
 
 	// ---- HTTP 层 ----
-	engine := server.New(cfg, log, authSvc, server.Handlers{
+	httpServer := server.New(cfg, log, authSvc, server.Handlers{
 		Auth: handler.NewAuthHandler(authSvc),
 		Note: handler.NewNoteHandler(noteSvc),
 		User: handler.NewUserHandler(userSvc),
-	})
+	}, version)
 
-	app := &App{Config: cfg, Engine: engine, DB: db, Cache: c, Log: log}
+	app := &App{Config: cfg, Server: httpServer, DB: db, Cache: c, Log: log}
 
 	// 种子数据放在装配最后：它要往各表写数据，依赖上面全部就位。
 	if cfg.Database.Seed {

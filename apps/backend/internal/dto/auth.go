@@ -20,3 +20,8 @@ type LoginResponse struct {
 	ExpiresAt int64     `json:"expires_at"` // Unix 秒
 	User      *UserInfo `json:"user"`
 }
+
+// LogoutResult 是登出成功的响应体。
+type LogoutResult struct {
+	LoggedOut bool `json:"logged_out"`
+}

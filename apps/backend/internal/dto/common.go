@@ -49,3 +49,12 @@ func NewPageResult[T any](list []T, total int64, page, pageSize int) *PageResult
 	}
 	return &PageResult[T]{List: list, Total: total, Page: page, PageSize: pageSize}
 }
+
+// HealthStatus 是存活检查的响应体。
+//
+// Time 用字符串而不是 time.Time：健康检查是给机器看的，
+// RFC3339 的字符串比再引入一层时间序列化规则更省事。
+type HealthStatus struct {
+	Status string `json:"status"`
+	Time   string `json:"time"`
+}
