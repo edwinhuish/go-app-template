@@ -235,11 +235,19 @@ handler ──> service ──> repository ──> model
 
 ## 6. 配置与密钥
 
-优先级：**配置文件 < 环境变量（`APP_` 前缀）**，生产模板 `configs/config.prod.yaml`。
+优先级：**配置文件 < 环境变量**，生产模板 `configs/config.prod.yaml`。
 
-变量名由字段的 yaml 路径推导，**不需要单独登记**：`APP_` + 路径，层级与键名统一用下划线，
-`app` 段并进前缀。例：`http.addr` → `APP_HTTP_ADDR`，`database.dsn` → `APP_DATABASE_DSN`，
-`cache.memory.save_interval` → `APP_CACHE_MEMORY_SAVE_INTERVAL`。加一个字段就自动多一个变量。
+变量名由字段的 yaml 路径推导，**不需要单独登记**：前缀取自 `app.name`（转大写 + `_`，非 ASCII
+字母数字换成下划线），后面接路径，层级与键名统一用下划线、`app` 段并进前缀。例：
+
+| `app.name` | `http.addr` | `database.dsn` | `cache.memory.save_interval` |
+|---|---|---|---|
+| `app` | `APP_HTTP_ADDR` | `APP_DATABASE_DSN` | `APP_CACHE_MEMORY_SAVE_INTERVAL` |
+| `orders` | `ORDERS_HTTP_ADDR` | `ORDERS_DATABASE_DSN` | `ORDERS_CACHE_MEMORY_SAVE_INTERVAL` |
+| `app-server` | `APP_SERVER_HTTP_ADDR` | `APP_SERVER_DATABASE_DSN` | `APP_SERVER_CACHE_MEMORY_SAVE_INTERVAL` |
+
+前缀随项目名走，同一个模板跑两套服务时两套变量互不覆盖。**`app.name` 自己不能被环境变量改**：
+它决定前缀，再让它走环境变量就成了自指。加一个字段就自动多一个变量。
 
 - 列表用逗号分隔，自动去首尾空格与空项：`APP_HTTP_CORS_ORIGINS="https://a,https://b"`。
 - 空字符串视为「未设置」，保持配置文件里的值——`VAR=${VAR}` 展开成空串不会把生产密钥清空。

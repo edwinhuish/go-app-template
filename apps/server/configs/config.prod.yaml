@@ -2,7 +2,8 @@
 #
 # 密码一律通过环境变量注入，不要写进仓库：
 #   APP_DATABASE_PASSWORD、APP_CACHE_REDIS_PASSWORD、APP_JWT_SECRET
-# 变量名 = APP_ + 配置路径（层级用下划线），见 apps/server/AGENTS.md 第 6 节。
+# 变量名 = app.name 转大写 + "_" + 配置路径（层级用下划线）。下面 app.name 是 app，
+# 所以前缀是 APP_；改成别的名字，上面前缀也跟着变。见 apps/server/AGENTS.md 第 6 节。
 # 换 MySQL 只需把 driver 改成 mysql 并把 port 改成 3306，其余键名不变。
 app:
   name: app

@@ -148,8 +148,65 @@ func TestEnvName(t *testing.T) {
 		"cache.memory.save_interval": "APP_CACHE_MEMORY_SAVE_INTERVAL",
 	}
 	for key, want := range cases {
-		if got := envName(key); got != want {
-			t.Errorf("envName(%q) = %q，期望 %q", key, got, want)
+		if got := envName("APP_", key); got != want {
+			t.Errorf("envName(\"APP_\", %q) = %q，期望 %q", key, got, want)
 		}
+	}
+}
+
+// TestEnvPrefixFor 钉住前缀的推导：app.name 大写、非字母数字变下划线、末尾补一个 "_"。
+func TestEnvPrefixFor(t *testing.T) {
+	cases := map[string]string{
+		"app":        "APP_",
+		"":           "APP_", // 文件里没写 name 时落回默认名
+		"app-server": "APP_SERVER_",
+		"Orders":     "ORDERS_",
+		"app.v2":     "APP_V2_",
+		"订单中心":       "APP_", // 没有可用字母数字，退回默认前缀
+	}
+	for name, want := range cases {
+		if got := envPrefixFor(name); got != want {
+			t.Errorf("envPrefixFor(%q) = %q，期望 %q", name, got, want)
+		}
+	}
+}
+
+// TestEnvPrefixFollowsAppName：app.name 决定变量命名空间。
+//
+// 同一份配置文件被两套服务共用时，这一点是必须的：否则两边的 APP_JWT_SECRET
+// 会互相覆盖，而症状是「一套服务用着另一套服务的密钥」。
+func TestEnvPrefixFollowsAppName(t *testing.T) {
+	path := writeConfig(t, "app:\n  name: orders\njwt:\n  secret: from-file\n")
+
+	t.Setenv("ORDERS_JWT_SECRET", "from-orders")
+	t.Setenv("APP_JWT_SECRET", "must-be-ignored") // 旧前缀不再生效
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("加载配置: %v", err)
+	}
+	if cfg.JWT.Secret != "from-orders" {
+		t.Errorf("jwt.secret = %q，期望被 ORDERS_JWT_SECRET 覆盖", cfg.JWT.Secret)
+	}
+}
+
+// TestEnvAppNameNotOverridable：app.name 不能用环境变量改。
+//
+// 它决定前缀，再让它走环境变量就成了自指：改了名字前缀也跟着变，没法回答
+// 「该用哪个前缀去读 name」。这里把行为钉住，免得以后有人「顺手支持一下」。
+func TestEnvAppNameNotOverridable(t *testing.T) {
+	path := writeConfig(t, envFixture) // app.name 没写，落默认 app
+	t.Setenv("APP_NAME", "hijack")
+	t.Setenv("HIJACK_HTTP_ADDR", ":19000")
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("加载配置: %v", err)
+	}
+	if cfg.App.Name != "app" {
+		t.Errorf("app.name = %q，期望仍是默认的 app（该值不可被环境变量覆盖）", cfg.App.Name)
+	}
+	if cfg.HTTP.Addr != ":9000" {
+		t.Errorf("http.addr = %q，期望仍是文件里的 :9000（前缀没被 HIJACK_ 抢走）", cfg.HTTP.Addr)
 	}
 }

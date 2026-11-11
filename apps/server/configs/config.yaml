@@ -1,6 +1,7 @@
 # 本地开发默认配置：SQLite + 内存缓存（落盘），零外部依赖即可启动。
 #
-# 想换外部服务不用改代码，只改这里（或对应 APP_* 环境变量，如 APP_DATABASE_DRIVER）：
+# 想换外部服务不用改代码，只改这里（或对应环境变量，如 APP_DATABASE_DRIVER；
+# 前缀取自下面的 app.name，改项目名等于换了一套变量名）：
 #   换 MySQL -> database.driver: mysql，配置 host/user/password/name
 #   换 PgSQL -> database.driver: postgres，其余字段名完全一样
 #   换 Redis -> cache.driver: redis，配置 cache.redis.addr

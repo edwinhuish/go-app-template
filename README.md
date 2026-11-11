@@ -85,7 +85,7 @@ rm -f apps/server/data/cache.snapshot   # 登录态与限流计数的落盘快�
 │   │   ├── configs/              分环境配置（默认 SQLite / postgres / mysql / prod）
 │   │   ├── internal/
 │   │   │   ├── bootstrap/        依赖装配、种子数据
-│   │   │   ├── config/           配置加载（yaml + APP_* 环境变量）、默认值、校验
+│   │   │   ├── config/           配置加载（yaml + 以 app.name 为前缀的环境变量）、默认值、校验
 │   │   │   ├── dto/              请求/响应契约（不依赖 model）
 │   │   │   ├── handler/          HTTP 适配层
 │   │   │   ├── infra/            database / cache / logger
@@ -151,10 +151,13 @@ APP_CACHE_DRIVER=redis APP_CACHE_REDIS_ADDR=127.0.0.1:6379 \
 task -d apps/server run
 ```
 
-优先级：配置文件 < `APP_*` 环境变量。变量名由配置项的 yaml 路径推导，凡是配置文件里有的键
-都能用同名规则覆盖（`http.addr` → `APP_HTTP_ADDR`，`cache.memory.save_interval` →
-`APP_CACHE_MEMORY_SAVE_INTERVAL`）；列表用逗号分隔，空值视为未设置，取值非法会拒绝启动。
-生产模板见 `configs/config.prod.yaml`。
+优先级：配置文件 < 环境变量。变量名 = **`app.name` 转大写** + `_` + yaml 路径（`app` 段并进前缀，
+层级与键名统一用下划线）：`app.name: app` 时是 `APP_HTTP_ADDR`、`APP_DATABASE_DSN`、
+`APP_CACHE_MEMORY_SAVE_INTERVAL`；改成 `app.name: orders`，同一批配置就变成 `ORDERS_HTTP_ADDR`、
+`ORDERS_DATABASE_DSN`——同一个模板跑两套服务时两套变量互不干扰。
+
+配置结构体里的每个叶子字段都能覆盖，不必先在 yaml 里写出来；列表用逗号分隔，空值视为未设置，
+取值非法会拒绝启动。`app.name` 自己不能用环境变量改（它决定前缀）。生产模板见 `configs/config.prod.yaml`。
 
 ## 命令
 
@@ -418,9 +421,8 @@ Vite 的 proxy target，二选一，不要两边都改）。
 | 占位 | 出现位置 | 替换为 |
 |---|---|---|
 | `example.com/app` | `apps/server/go.mod` 与所有 import | 你的模块路径（如 `github.com/you/project`） |
-| `app` / `App` | `configs/*.yaml` 的 `app.name`、缓存前缀、`index.html` 标题、`AppLayout` 里的品牌名 | 项目名 |
+| `app` / `App` | `configs/*.yaml` 的 `app.name`（**它同时决定环境变量前缀**，`orders` → `ORDERS_*`）、缓存前缀、`index.html` 标题、`AppLayout` 里的品牌名 | 项目名 |
 | `app-server` | `apps/server/Taskfile.yml`、`Dockerfile`、`main.go` 的 `-version` 输出、`.github/workflows/release.yml` 的 `APP_NAME` | 二进制名 |
-| `APP_` | `internal/config/config.go` 的 `envPrefix` 常量（所有环境变量名由它拼出） | 你的环境变量前缀 |
 | `admin` / `admin123` | `configs/config.yaml` 的 `app.seed_admin_*` | 初始管理员账号 |
 | `app_token` | `apps/web/src/constants/index.ts` | 前端令牌键（换项目名时一起换） |
 | `app-web` | `apps/web/package.json` 的 `name` | 前端包名 |

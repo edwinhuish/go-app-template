@@ -1,15 +1,19 @@
 // Package config 负责加载与校验应用配置。
 //
-// 优先级：配置文件 < 环境变量（APP_ 前缀）。生产环境的密码、连接串一律走环境变量，
-// 不进仓库。
+// 优先级：配置文件 < 环境变量。变量前缀取自 app.name（见 envPrefixFor）：
+// 生产环境的密码、连接串一律走环境变量，不进仓库。
 //
-// 环境变量名由字段的 yaml 路径推导，不再维护第二份清单：
+// 变量名由字段的 yaml 路径推导，前缀取自配置里的 app.name（大写 + "_"）：
 //
+//	app.name=app 时：
 //	app.env                    -> APP_ENV（前缀本身代表 app 段）
 //	http.addr                  -> APP_HTTP_ADDR
 //	database.dsn               -> APP_DATABASE_DSN
-//	cache.redis.addr           -> APP_CACHE_REDIS_ADDR
 //	cache.memory.save_interval -> APP_CACHE_MEMORY_SAVE_INTERVAL
+//
+//	app.name=orders 时同一批配置变成 ORDERS_ENV、ORDERS_HTTP_ADDR……
+//
+// app.name 本身不能用环境变量改：它决定前缀，再让它走环境变量就成了自指。
 //
 // 加一个字段就自动多了对应的环境变量；取值非法（APP_DATABASE_PORT=abc）会拒绝启动，
 // 而不是像以前那样当作没设置——那种静默忽略最贵的后果是「生产的密码没生效」。
@@ -180,7 +184,9 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件 %s: %w", path, err)
 	}
 
-	applied, err := applyEnv(k)
+	// 前缀先按文件里的 app.name 定下来，再覆盖其余键：环境变量命名空间跟着项目走，
+	// 同一个配置文件换个 app.name 就是另一套变量。
+	applied, err := applyEnv(k, envPrefixFor(k.String("app.name")))
 	if err != nil {
 		return nil, err
 	}
@@ -289,9 +295,42 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-// envPrefix 是所有配置环境变量的前缀。前缀本身就代表 app 段，所以 app.env 是
-// APP_ENV，而不是 APP_APP_ENV。
-const envPrefix = "APP_"
+// envPrefixFor 由 app.name 推出环境变量前缀：转大写、非 ASCII 字母数字换成下划线，
+// 末尾补一个 "_"。
+//
+//	app         -> APP_
+//	app-server  -> APP_SERVER_
+//	（未配置）  -> APP_
+//
+// 这样同一个模板里跑两套服务（app.name 不同）时，两套变量不会互相覆盖；
+// 也意味着换个项目名就连带换了变量命名空间，不需要再改代码。
+//
+// 名字里没有任何可用的 ASCII 字母数字（纯中文之类）时退回 APP_：否则所有变量都会
+// 变成 `_ENV` 这种既拼不出来、也看不出归属的名字。
+func envPrefixFor(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "app"
+	}
+
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r - 'a' + 'A')
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+
+	prefix := strings.Trim(b.String(), "_")
+	if prefix == "" {
+		return "APP_"
+	}
+	return prefix + "_"
+}
 
 // applyEnv 把环境变量写进配置树，返回本次真正生效的变量名（用于报错时给线索）。
 //
@@ -303,41 +342,42 @@ const envPrefix = "APP_"
 //
 // map 类型的键（database.params）不提供环境变量出口：它按驱动解释，硬塞一个字符串
 // 会拼出非法连接串，需要改这类参数的场景请直接改配置文件的 params 段。
-func applyEnv(k *koanf.Koanf) ([]string, error) {
-	vars := envVars()
+func applyEnv(k *koanf.Koanf, prefix string) ([]string, error) {
+	keys := envKeys()
 
-	seen := make(map[string]string, len(vars))
-	applied := make([]string, 0, len(vars))
+	seen := make(map[string]string, len(keys))
+	applied := make([]string, 0, len(keys))
 
-	for _, v := range vars {
-		if prev, dup := seen[v.name]; dup {
-			return nil, fmt.Errorf("配置项 %s 与 %s 推导出同一个环境变量名 %s，请改名",
-				prev, v.key, v.name)
+	for _, key := range keys {
+		// app.name 决定前缀本身：再让它走环境变量就是自指——改了名字前缀也跟着变，
+		// 于是「用哪个前缀去读 name」没有答案。重命名请直接改配置文件。
+		if key == "app.name" {
+			continue
 		}
-		seen[v.name] = v.key
 
-		val, ok := os.LookupEnv(v.name)
+		name := envName(prefix, key)
+		if prev, dup := seen[name]; dup {
+			return nil, fmt.Errorf("配置项 %s 与 %s 推导出同一个环境变量名 %s，请改名",
+				prev, key, name)
+		}
+		seen[name] = key
+
+		val, ok := os.LookupEnv(name)
 		if !ok || val == "" {
 			continue
 		}
-		k.Set(v.key, val)
-		applied = append(applied, v.name)
+		k.Set(key, val)
+		applied = append(applied, name)
 	}
 	return applied, nil
 }
 
-// envVar 是一条「环境变量名 ↔ 配置路径」的对应关系。
-type envVar struct {
-	name string // APP_CACHE_REDIS_ADDR
-	key  string // cache.redis.addr
-}
-
-// envVars 用反射遍历配置结构体的 yaml tag，推出每个叶子字段的环境变量名。
+// envKeys 用反射遍历配置结构体的 yaml tag，列出每个叶子字段的配置路径。
 //
 // 只认 yaml tag：它是配置文件里真实存在的键，也是文档表格里那一列。
 // 未导出字段（database.prod 这类由程序填入的状态）跳过。
-func envVars() []envVar {
-	var out []envVar
+func envKeys() []string {
+	var out []string
 
 	var walk func(t reflect.Type, path string)
 	walk = func(t reflect.Type, path string) {
@@ -366,7 +406,7 @@ func envVars() []envVar {
 			case reflect.Map:
 				// 见 applyEnv 的说明：map 不做环境变量覆盖。
 			default:
-				out = append(out, envVar{name: envName(key), key: key})
+				out = append(out, key)
 			}
 		}
 	}
@@ -382,9 +422,9 @@ func envVars() []envVar {
 //
 // 名字是从路径「生成」的，不再反向解析回来，所以键名里的下划线（save_interval）
 // 不会被误当成层级分隔。
-func envName(key string) string {
+func envName(prefix, key string) string {
 	key = strings.TrimPrefix(key, "app.")
-	return envPrefix + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+	return prefix + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
 }
 
 // stringToSlice 让 `APP_HTTP_CORS_ORIGINS=https://a,https://b` 覆盖成两项。
