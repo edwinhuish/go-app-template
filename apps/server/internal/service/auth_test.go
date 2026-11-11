@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 
 	"example.com/app/internal/dto"
 	"example.com/app/internal/infra/cache"
@@ -285,6 +286,34 @@ func TestLoginRejectsBeforePasswordCheck(t *testing.T) {
 	e, ok := errs.From(err)
 	if !ok || e.Code != errs.CodeForbidden {
 		t.Fatalf("err = %v，期望 403（次数过多）", err)
+	}
+}
+
+// TestDummyHashFailureIsVisible 守住「时序对齐用的摘要生成失败必须留信号」。
+//
+// 这条分支在生产里几乎不可能触发，但触发时的后果是静默的：账号不存在那条路变回
+// 「立刻返回」，用户名又能按响应时间被枚举出来，而文案统一、状态码一致，从外面
+// 看不出任何异常。所以注入一个非法的 cost，要求日志里出现 error，并且登录本身
+// 仍然可用（降级而不是瘫痪）。
+func TestDummyHashFailureIsVisible(t *testing.T) {
+	old := dummyHashCost
+	dummyHashCost = bcrypt.MaxCost + 1 // 越界才报错：bcrypt 会把过小的 cost 悄悄夹回默认值
+	t.Cleanup(func() { dummyHashCost = old })
+
+	var logs bytes.Buffer
+	svc := NewAuthService(newFakeUserRepo(), newFakeCache(),
+		AuthConfig{Secret: testSecret, Expire: time.Hour, MaxLoginFail: 5},
+		WithAuthLogger(slog.New(slog.NewTextHandler(&logs, nil))),
+	)
+
+	if !strings.Contains(logs.String(), "时序对齐") {
+		t.Errorf("生成失败没有留下日志：%q", logs.String())
+	}
+
+	// 降级而非瘫痪：不存在的账号仍然是 401（只是比对那一步立刻返回）。
+	_, err := svc.Login(context.Background(), dto.LoginRequest{Username: "ghost", Password: "whatever"})
+	if e, ok := errs.From(err); !ok || e.Code != errs.CodeUnauthorized {
+		t.Fatalf("err = %v，期望 401（降级后仍按凭据错误处理）", err)
 	}
 }
 

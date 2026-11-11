@@ -38,18 +38,13 @@ var errLoginTooManyFails = errs.New(errs.CodeForbidden, "登录失败次数过�
 // errBadCredentials 是账号不存在与密码错误的统一文案，避免账号枚举。
 var errBadCredentials = errs.New(errs.CodeUnauthorized, "用户名或密码错误")
 
-// dummyPasswordHash 只用于「账号不存在」时也消耗一次 bcrypt 的时间。
-//
-// 少了它，两条失败路径的耗时差两个数量级（bcrypt cost 10 约几十毫秒，查不到
-// 账号几乎立即返回），任何人都能按响应时间把用户名枚举出来 —— 文案统一了，
-// 时间没统一，等于白做。启动时算一次，不放在热路径上。
-var dummyPasswordHash = func() []byte {
-	h, err := bcrypt.GenerateFromPassword([]byte("timing-equalizer"), bcrypt.DefaultCost)
-	if err != nil {
-		return nil
-	}
-	return h
-}()
+// dummyHashPassword 是「账号不存在」时假装要校验的那个密码。
+const dummyHashPassword = "timing-equalizer"
+
+// dummyHashCost 是时序对齐摘要的 bcrypt cost，单独提出来只为可注入：
+// cost 越界时 bcrypt 直接报错，用例靠它走通「生成失败」那条分支——那条分支
+// 在生产里几乎不可能触发，只能靠注入来验证一次。
+var dummyHashCost = bcrypt.DefaultCost
 
 // AuthConfig 是鉴权相关的可调参数。
 type AuthConfig struct {
@@ -82,6 +77,8 @@ type authService struct {
 	sessions cache.Cache
 	cfg      AuthConfig
 	log      *slog.Logger
+	// dummyHash 见 buildDummyHash；构造时算一次，热路径只读。
+	dummyHash []byte
 }
 
 // NewAuthService 构造鉴权服务。
@@ -99,7 +96,28 @@ func NewAuthService(
 	for _, opt := range opts {
 		opt(s)
 	}
+	// 放在 opts 之后：生成失败的日志要落在调用方注入的 logger 上，而不是 slog.Default()。
+	s.dummyHash = s.buildDummyHash()
 	return s
+}
+
+// buildDummyHash 生成「账号不存在」时也要消耗的那次 bcrypt 比对用的摘要。
+//
+// 少了它，两条失败路径的耗时差两个数量级（bcrypt cost 10 约几十毫秒，查不到账号
+// 几乎立即返回），任何人都能按响应时间把用户名枚举出来——文案统一了、时间没统一，
+// 等于白做。
+//
+// 生成失败不阻塞启动：登录本身照常可用，只是「账号不存在」那条路会立刻返回。但必须
+// 留 error 级日志——这是「文案统一了、时间没统一」唯一的外部信号；静默返回 nil 的结果
+// 是枚举通道重新打开，而没有任何人知道。
+func (s *authService) buildDummyHash() []byte {
+	h, err := bcrypt.GenerateFromPassword([]byte(dummyHashPassword), dummyHashCost)
+	if err != nil {
+		s.log.Error("生成时序对齐用的密码摘要失败，账号不存在时的响应会明显更快，用户名可被枚举",
+			"err", err)
+		return nil
+	}
+	return h
 }
 
 func (s *authService) HashPassword(plain string) (string, error) {
@@ -132,8 +150,8 @@ func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Log
 			// 一片登录失败，排查方向直接跑偏。
 			return nil, errs.Wrap(err, errs.CodeInternal, "查询账号失败")
 		}
-		// 账号不存在也走一次 bcrypt，把两条失败路径的耗时拉平（见 dummyPasswordHash）。
-		_ = bcrypt.CompareHashAndPassword(dummyPasswordHash, []byte(req.Password))
+		// 账号不存在也走一次 bcrypt，把两条失败路径的耗时拉平（见 buildDummyHash）。
+		_ = bcrypt.CompareHashAndPassword(s.dummyHash, []byte(req.Password))
 		s.markLoginFail(ctx, failKey)
 		return nil, errBadCredentials
 	}
