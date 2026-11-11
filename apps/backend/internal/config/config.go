@@ -100,6 +100,10 @@ type Database struct {
 	Seed        bool `yaml:"seed"`
 	// LogLevel 取 silent | error | warn | info，默认 warn（只打慢查询与错误）。
 	LogLevel string `yaml:"log_level"`
+
+	// prod 由 Load 按 app.env 填入，不来自配置文件：它决定连接串里的安全默认值
+	// （见 ResolvedDSN），不能交给使用方随手覆盖。
+	prod bool
 }
 
 // Cache 描述缓存实现。
@@ -164,6 +168,9 @@ func Load(path string) (*Config, error) {
 	cfg.applyDefaults()
 	cfg.applyEnv()
 
+	// 环境可能在 APP_ENV 里被改写，安全默认值要等两轮覆盖都结束再定。
+	cfg.Database.prod = cfg.IsProd()
+
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -177,6 +184,9 @@ func (c *Config) applyDefaults() {
 	if c.App.Env == "" {
 		c.App.Env = "dev"
 	}
+	// 归一化后再判断：写成 "Prod" / " prod" 会绕过全部生产校验（fail-open），
+	// 而那种写法在环境变量里太容易出现了。
+	c.App.Env = strings.ToLower(strings.TrimSpace(c.App.Env))
 	if c.App.SeedAdminUsername == "" {
 		c.App.SeedAdminUsername = "admin"
 	}
@@ -291,12 +301,38 @@ func (c *Config) Validate() error {
 	if c.JWT.Secret == "" {
 		return fmt.Errorf("jwt.secret 不能为空")
 	}
+	if c.JWT.Expire <= 0 {
+		return fmt.Errorf("jwt.expire 必须大于 0（单位小时）")
+	}
+	if c.HTTP.ShutdownTimeout <= 0 {
+		return fmt.Errorf("http.shutdown_timeout 必须大于 0（单位秒）")
+	}
+
+	// 只认两个值：未知取值意味着下面所有生产校验都不会执行，
+	// 而「env 写错了所以生产校验没生效」是最不该靠运气的事。
+	switch c.App.Env {
+	case "dev", "prod":
+	default:
+		return fmt.Errorf("app.env 只支持 dev / prod，实际 %q", c.App.Env)
+	}
+
 	if c.IsProd() {
 		if len(c.JWT.Secret) < 32 {
 			return fmt.Errorf("生产环境 jwt.secret 至少 32 位")
 		}
 		if c.Database.Seed {
 			return fmt.Errorf("生产环境必须关闭 database.seed")
+		}
+		if c.Cache.FallbackToMemory {
+			return fmt.Errorf("生产环境必须关闭 cache.fallback_to_memory：" +
+				"静默退回进程内缓存会让多实例之间的会话与计数立刻不一致")
+		}
+		// 生产不允许「连库时不加密」这种事悄悄发生：本地容器默认 disable 是合理的，
+		// 但到了生产必须有人显式做这个决定，而不是继承开发环境的兜底。
+		if c.Database.Driver == DriverPostgres && c.Database.DSN == "" {
+			if _, ok := c.Database.Params["sslmode"]; !ok {
+				return fmt.Errorf("生产环境必须显式配置 database.params.sslmode（如 require）")
+			}
 		}
 	}
 	return nil
@@ -356,8 +392,9 @@ func (d Database) ResolvedDSN() string {
 		if d.Password != "" {
 			kv["password"] = d.Password
 		}
-		// 生产默认要求 TLS；本地容器没证书，这里只给「没配就用 disable」的兜底。
-		if _, ok := d.Params["sslmode"]; !ok {
+		// 只在非生产环境兜底成 disable：本地容器没有证书，不这样连不上。
+		// 生产必须由配置显式声明（Validate 会强制），不在这里替人做「悄悄不加密」的决定。
+		if _, ok := d.Params["sslmode"]; !ok && !d.prod {
 			kv["sslmode"] = "disable"
 		}
 		for k, v := range d.Params {

@@ -71,10 +71,13 @@ func Open(cfg config.Database, log *slog.Logger) (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(time.Duration(cfg.MaxLifetime) * time.Second)
 
 	if err := sqlDB.Ping(); err != nil {
+		// 已经打开的连接池要关掉：这里直接 return 会漏掉 conn 与它背后的 goroutine。
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("数据库 ping 失败: %w", err)
 	}
 
 	if err := registerErrorTranslators(db); err != nil {
+		_ = sqlDB.Close()
 		return nil, fmt.Errorf("注册错误翻译: %w", err)
 	}
 
