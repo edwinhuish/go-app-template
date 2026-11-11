@@ -44,6 +44,12 @@ const (
 	// 卡住时早点返回 504，比让浏览器转到超时更好查——日志里会留下带 request_id 的记录。
 	requestTimeout = 30 * time.Second
 
+	// loginRateLimit / loginRateWindow 是登录接口按调用方 IP 的限流窗口。
+	// 取 20 次/分钟：正常人手误远达不到，而每次登录要跑一次 bcrypt（约 60ms），
+	// 20 次意味着单个 IP 每分钟最多消耗约 1.2s CPU。
+	loginRateLimit  int64 = 20
+	loginRateWindow       = time.Minute
+
 	// securitySchemeBearer 是 spec 里鉴权方案的键名，路由与组件必须用同一个。
 	securitySchemeBearer = "bearerAuth"
 )
@@ -72,11 +78,12 @@ func (s *Server) OpenAPIJSON() ([]byte, error) {
 //
 // version 只用于文档里的版本号，与二进制自己的 -version 同源。
 func New(
-	cfg *config.Config, log *slog.Logger, auth service.AuthService, h Handlers, version string,
+	cfg *config.Config, log *slog.Logger, auth service.AuthService,
+	limiter middleware.Limiter, h Handlers, version string,
 ) *Server {
 	fg := newFuegoServer(cfg, log, version)
 
-	registerRoutes(fg, h, auth)
+	registerRoutes(fg, log, h, auth, limiter)
 
 	// 文档路由最后注册：它自己也是两条路由，先注册会让它们排在业务路由之前，
 	// 出问题时不容易判断「文档是不是把业务路由盖住了」。
@@ -186,7 +193,10 @@ func docsEnabled(cfg *config.Config) bool {
 // 每条路由的选项里同时写着「谁能调」与「会怎么失败」：
 // 权限漏写等于开了一条公开接口，失败码漏写等于文档少一页——
 // 两者都靠这一处集中表达，而不是散在 handler 里。
-func registerRoutes(s *fuego.Server, h Handlers, auth service.AuthService) {
+func registerRoutes(
+	s *fuego.Server, log *slog.Logger, h Handlers, auth service.AuthService,
+	limiter middleware.Limiter,
+) {
 	// 需要登录的路由统一带：鉴权中间件、文档里的 security、以及最常见的失败码。
 	// 加同类接口时复用 secured，别自己拼 OptionMiddleware —— 漏挂不会报错。
 	secured := slices.Concat(
@@ -212,11 +222,17 @@ func registerRoutes(s *fuego.Server, h Handlers, auth service.AuthService) {
 		doc("health", "存活检查", "system")...,
 	)
 
+	// 登录是唯一一个「未登录也能触发 CPU 密集操作」的接口，单独按 IP 限流：
+	// 按用户名锁定拦得住「猜同一个账号」，拦不住「换着用户名刷」。
+	loginGuard := fuego.OptionMiddleware(
+		middleware.RateLimit(log, limiter, "login", loginRateLimit, loginRateWindow))
+
 	fuego.Post(s, "/api/v1/auth/login", ok(h.Auth.Login),
 		slices.Concat(
 			doc("login", "账号密码登录", "auth"),
-			errorResponses(http.StatusBadRequest, http.StatusUnauthorized,
-				http.StatusForbidden, http.StatusInternalServerError, http.StatusGatewayTimeout),
+			[]fuego.RouteOption{loginGuard},
+			errorResponses(http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden,
+				http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusGatewayTimeout),
 		)...,
 	)
 
@@ -310,6 +326,7 @@ var errorResponseDescriptions = map[int]string{
 	http.StatusForbidden:             "已登录但无权限（code 40301）",
 	http.StatusNotFound:              "资源不存在（code 40401）",
 	http.StatusConflict:              "唯一约束 / 乐观锁命中 0 行 / 状态不允许（code 40901）",
+	http.StatusTooManyRequests:       "请求过于频繁（code 42901），同一个 IP 的登录尝试超过阈值",
 	http.StatusRequestEntityTooLarge: "请求体过大（code 40001）",
 	http.StatusInternalServerError:   "服务器内部错误（code 50001），真实原因只进日志",
 	http.StatusGatewayTimeout:        "请求处理超时（code 50401）",

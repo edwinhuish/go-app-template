@@ -6,13 +6,16 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
@@ -117,6 +120,81 @@ func TestExtractToken(t *testing.T) {
 				t.Errorf("extractToken(%q) = %q，期望 %q", c.header, got, c.want)
 			}
 		})
+	}
+}
+
+// fakeLimiter 是最小化的限流计数桩：只数次数，不关心窗口。
+type fakeLimiter struct {
+	counts map[string]int64
+	err    error
+}
+
+func (f *fakeLimiter) Incr(_ context.Context, key string, _ time.Duration) (int64, error) {
+	if f.err != nil {
+		return 0, f.err
+	}
+	if f.counts == nil {
+		f.counts = make(map[string]int64)
+	}
+	f.counts[key]++
+	return f.counts[key], nil
+}
+
+// TestRateLimitBlocksOverLimit 守住「超过阈值回 429」以及分桶键里带 IP。
+func TestRateLimitBlocksOverLimit(t *testing.T) {
+	limiter := &fakeLimiter{}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	h := RateLimit(log, limiter, "login", 2, time.Minute)(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+	do := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
+		req.RemoteAddr = "192.0.2.1:1234"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+
+	for i := 1; i <= 2; i++ {
+		if got := do().Code; got != http.StatusOK {
+			t.Fatalf("第 %d 次 = %d，期望 200", i, got)
+		}
+	}
+
+	rec := do()
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("超限那次 = %d，期望 429", rec.Code)
+	}
+
+	var body response.ErrorBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("429 的响应体不是 JSON: %v", err)
+	}
+	if body.Code != int(errs.CodeTooManyRequests) {
+		t.Errorf("429 的 code = %d，期望 %d", body.Code, errs.CodeTooManyRequests)
+	}
+
+	if _, ok := limiter.counts["ratelimit:login:192.0.2.1"]; !ok {
+		t.Errorf("分桶键里没有 IP：实际 %v", limiter.counts)
+	}
+}
+
+// TestRateLimitFailsOpen 守住「缓存抖动时放行」：限流是为了保护自己，
+// 不该因为计数不可用把所有人挡在门外。
+func TestRateLimitFailsOpen(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := RateLimit(log, &fakeLimiter{err: errors.New("cache down")}, "login", 1, time.Minute)(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil))
+	if rec.Code != http.StatusOK {
+		t.Errorf("计数失败时 = %d，期望放行（200）", rec.Code)
 	}
 }
 

@@ -189,6 +189,28 @@ func TestLoginLockout(t *testing.T) {
 	}
 }
 
+// TestLoginRateLimitedByIP 验证登录接口按 IP 限流，且锁的是调用方而不是账号。
+//
+// 每次换一个用户名：按用户名锁定不会触发（每个只错一次），只有 IP 维度的计数
+// 能拦住它——这正是「换着用户名刷」的场景，也是 bcrypt 被打满的入口。
+func TestLoginRateLimitedByIP(t *testing.T) {
+	srv := newTestServer(t)
+
+	for i := 1; i <= 20; i++ {
+		status, _, doc := call(t, srv, http.MethodPost, "/api/v1/auth/login",
+			fmt.Sprintf(`{"username":"ghost-%d","password":"whatever123"}`, i), "")
+		if status != http.StatusUnauthorized {
+			t.Fatalf("第 %d 次登录 = %d，期望 401（响应 %v）", i, status, doc)
+		}
+	}
+
+	status, _, doc := call(t, srv, http.MethodPost, "/api/v1/auth/login",
+		`{"username":"ghost-21","password":"whatever123"}`, "")
+	if status != http.StatusTooManyRequests || doc["code"] != float64(42901) {
+		t.Errorf("超过 IP 阈值后 = %d / code %v，期望 429 / 42901", status, doc["code"])
+	}
+}
+
 // TestDisabledAccountTokenRejected 验证停用账号后，已签发的令牌立刻失效。
 func TestDisabledAccountTokenRejected(t *testing.T) {
 	srv, app := newTestApp(t, devConfigYAML(t))

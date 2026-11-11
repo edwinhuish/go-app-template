@@ -85,7 +85,9 @@ func New(cfg *config.Config, version string) (*App, error) {
 	userSvc := service.NewUserService(userRepo, service.WithUserLogger(log))
 
 	// ---- HTTP 层 ----
-	httpServer := server.New(cfg, log, authSvc, server.Handlers{
+	// 缓存同时交给 HTTP 层做限流计数：登录接口按 IP 分桶，计数与会话共享同一套存储，
+	// 切 redis 之后多实例也共用一份。
+	httpServer := server.New(cfg, log, authSvc, c, server.Handlers{
 		Auth: handler.NewAuthHandler(authSvc),
 		Note: handler.NewNoteHandler(noteSvc),
 		User: handler.NewUserHandler(userSvc),

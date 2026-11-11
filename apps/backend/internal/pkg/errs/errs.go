@@ -27,6 +27,8 @@ const (
 	CodeNotFound Code = 40401
 	// CodeConflict 唯一约束或状态冲突（409）。
 	CodeConflict Code = 40901
+	// CodeTooManyRequests 请求过于频繁（429）。
+	CodeTooManyRequests Code = 42901
 	// CodeInternal 服务内部错误（500）。
 	CodeInternal Code = 50001
 	// CodeTimeout 请求处理超时（504）。
@@ -46,6 +48,8 @@ func (c Code) HTTPStatus() int {
 		return http.StatusNotFound
 	case 409:
 		return http.StatusConflict
+	case 429:
+		return http.StatusTooManyRequests
 	case 504:
 		return http.StatusGatewayTimeout
 	case 500:
@@ -100,12 +104,13 @@ func From(err error) (*Error, bool) {
 
 // 常用错误。需要不同文案时用 WithMsg 复制一份，不要改这里的值。
 var (
-	ErrNotFound     = New(CodeNotFound, "资源不存在")
-	ErrUnauthorized = New(CodeUnauthorized, "未登录或登录状态已失效")
-	ErrForbidden    = New(CodeForbidden, "没有操作权限")
-	ErrInternal     = New(CodeInternal, "服务器内部错误")
-	ErrConflict     = New(CodeConflict, "数据已存在或状态冲突")
-	ErrTimeout      = New(CodeTimeout, "请求处理超时，请稍后重试")
+	ErrNotFound        = New(CodeNotFound, "资源不存在")
+	ErrUnauthorized    = New(CodeUnauthorized, "未登录或登录状态已失效")
+	ErrForbidden       = New(CodeForbidden, "没有操作权限")
+	ErrInternal        = New(CodeInternal, "服务器内部错误")
+	ErrConflict        = New(CodeConflict, "数据已存在或状态冲突")
+	ErrTooManyRequests = New(CodeTooManyRequests, "请求过于频繁，请稍后再试")
+	ErrTimeout         = New(CodeTimeout, "请求处理超时，请稍后重试")
 )
 
 // BadRequest 构造参数错误。
