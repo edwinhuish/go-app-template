@@ -5,7 +5,6 @@ import (
 
 	"example.com/app/internal/dto"
 	"example.com/app/internal/pkg/errs"
-	"example.com/app/internal/server/middleware"
 	"example.com/app/internal/service"
 )
 
@@ -38,7 +37,7 @@ func (h *AuthHandler) Login(
 
 // Logout 处理 POST /auth/logout，删除服务端会话。
 func (h *AuthHandler) Logout(c fuego.ContextNoBody) (dto.LogoutResult, error) {
-	p, ok := middleware.PrincipalFrom(c.Request().Context())
+	p, ok := service.ActorFrom(c.Request().Context())
 	if !ok {
 		// 路由上挂了鉴权中间件，走到这里说明装配漏了 Authorization 之外的东西；
 		// 仍然返回 401 而不是空结构体，免得一个配置错误变成「静默成功」。
@@ -53,7 +52,7 @@ func (h *AuthHandler) Logout(c fuego.ContextNoBody) (dto.LogoutResult, error) {
 
 // Profile 处理 GET /auth/profile，返回当前登录身份。
 func (h *AuthHandler) Profile(c fuego.ContextNoBody) (dto.UserInfo, error) {
-	p, ok := middleware.PrincipalFrom(c.Request().Context())
+	p, ok := service.ActorFrom(c.Request().Context())
 	if !ok {
 		return dto.UserInfo{}, errs.ErrUnauthorized
 	}

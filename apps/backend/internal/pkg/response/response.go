@@ -147,6 +147,23 @@ func PayloadTooLarge(w http.ResponseWriter, limit int64) {
 	})
 }
 
+// HandleTooLarge 把 MaxBytesReader 抛出的读错误翻成 413，返回是否已经写过响应。
+//
+// 放在这里而不是某个中间件包里：它决定的是响应的形状（code + message），
+// 属于 response 的职责；调用方既有解析层（handler 读完 body 才知道超没超），
+// 也可能有中间件。放中间件包里会逼着 handler 反向 import server 层。
+//
+// 不翻的话它会在解析层变成「请求参数格式不正确」这类 400，而 400 的意思是
+// 「你的请求写错了」——实际是「太大了」，两种提示对应的动作完全不同。
+func HandleTooLarge(w http.ResponseWriter, err error) bool {
+	var tooLarge *http.MaxBytesError
+	if !errors.As(err, &tooLarge) {
+		return false
+	}
+	PayloadTooLarge(w, tooLarge.Limit)
+	return true
+}
+
 func humanSize(n int64) string {
 	const mb = 1 << 20
 	if n >= mb {

@@ -21,7 +21,6 @@ import (
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
-	"example.com/app/internal/server/middleware"
 )
 
 // validate 与改造前用的是同一套校验语义：go-playground/validator，
@@ -53,7 +52,7 @@ func newQueryDecoder() *schema.Decoder {
 func bindJSON(w http.ResponseWriter, r *http.Request, dst any) error {
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
 		// 请求体超过 BodyLimit 时，读错误会带着「解析失败」的外观。
-		if middleware.HandleTooLarge(w, err) {
+		if response.HandleTooLarge(w, err) {
 			return response.ErrResponseWritten
 		}
 		return errs.BadRequest(validationMessage(err))

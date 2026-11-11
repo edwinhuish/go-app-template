@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"context"
 	"net/http"
 
 	"example.com/app/internal/pkg/errs"
@@ -9,25 +8,16 @@ import (
 	"example.com/app/internal/service"
 )
 
-// principalKey 是登录身份在请求上下文里的键。
-type principalKey struct{}
-
-// WithPrincipal 把当前登录身份写入上下文，供 handler 取 TokenID、角色等字段。
-func WithPrincipal(ctx context.Context, p *service.Principal) context.Context {
-	return context.WithValue(ctx, principalKey{}, p)
-}
-
-// PrincipalFrom 取出当前登录身份。
-func PrincipalFrom(ctx context.Context) (*service.Principal, bool) {
-	p, ok := ctx.Value(principalKey{}).(*service.Principal)
-	return p, ok && p != nil
-}
-
-// Auth 校验 Bearer 令牌，并把身份注入上下文。
+// Auth 校验 Bearer 令牌，并把登录身份注入上下文。
 //
-// 身份放两份：context 里的 principal 给 handler 用（登录接口之外的接口都要知道
-// 自己是谁），service.WithActor 那份给 service 用（service 不认识 HTTP，
-// 只能从 context.Context 取）。
+// 本包只做「验证 + 注入」两件事，不定义 context key，也不提供读取函数。
+// 身份的唯一存储处是 service.WithActor：service 层的业务规则（谁能看全部数据、
+// 这条记录归谁）要读它，而本仓库不允许 service 反向 import server
+// （依赖只能 handler → service），所以存储必须落在 service 那一侧。
+//
+// 读取由使用方各自负责：handler 用 service.ActorFrom，service 直接用 ActorFrom。
+// 中间件如果顺手再存一份自己的 key，同一个请求里就有两个身份来源，
+// 忘写其中一个的表现是「身份凭空消失」——这类 bug 只能靠运行时发现。
 func Auth(auth service.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -43,9 +33,7 @@ func Auth(auth service.AuthService) func(http.Handler) http.Handler {
 				return
 			}
 
-			ctx := WithPrincipal(r.Context(), p)
-			ctx = service.WithActor(ctx, p)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(service.WithActor(r.Context(), p)))
 		})
 	}
 }
@@ -57,7 +45,7 @@ func Auth(auth service.AuthService) func(http.Handler) http.Handler {
 func RequireAdmin() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			p, ok := PrincipalFrom(r.Context())
+			p, ok := service.ActorFrom(r.Context())
 			if !ok {
 				response.Fail(w, r, nil, errs.ErrUnauthorized)
 				return

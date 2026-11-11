@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"errors"
 	"net/http"
 
 	"example.com/app/internal/pkg/response"
@@ -29,17 +28,4 @@ func BodyLimit(maxBytes int64) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// HandleTooLarge 把 MaxBytesReader 抛出的读错误翻成 413，返回是否已经写过响应。
-//
-// 不翻的话它会在解析层变成「请求参数格式不正确」这类 400，
-// 而 400 的意思是「你的请求写错了」——实际是「太大了」，两种提示对应的动作完全不同。
-func HandleTooLarge(w http.ResponseWriter, err error) bool {
-	var tooLarge *http.MaxBytesError
-	if !errors.As(err, &tooLarge) {
-		return false
-	}
-	response.PayloadTooLarge(w, tooLarge.Limit)
-	return true
 }
