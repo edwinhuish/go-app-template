@@ -134,22 +134,41 @@ func (r *Base[T]) UpdateFields(ctx context.Context, id uint, fields map[string]a
 
 // DeleteByID 执行软删除，历史数据与追溯链不受影响。
 func (r *Base[T]) DeleteByID(ctx context.Context, id uint) error {
-	res := r.conn(ctx).Delete(new(T), id)
-	if isSoftDeleteMarkerConflict(res.Error) {
-		// 软删除标记是 Unix 毫秒，且被排进了「未删才唯一」的复合索引：同一毫秒内
-		// 删掉两条同名记录会撞索引。换一个毫秒重试一次就够，不必把这个每秒最多
-		// 出现一次的巧合暴露成 409——调用方看不出自己哪里做错了。
-		time.Sleep(2 * time.Millisecond)
-		res = r.conn(ctx).Delete(new(T), id)
+	// 软删除标记是 Unix 毫秒，且被排进了「未删才唯一」的复合索引：同一毫秒内删掉
+	// 两条同名记录会撞索引。这里不 Sleep 等下一毫秒——那是把等待时间塞进请求路径，
+	// 而且睡多久都得赌——而是自己在冲突时把标记往前推 1ms 重试：deleted_at 只要求
+	// 「非 0 且同一业务键下互不相同」，比当前时间大几毫秒不影响任何语义
+	// （未删的判定是 deleted_at = 0）。不必把这个每秒最多一次的巧合暴露成 409，
+	// 调用方看不出自己哪里做错了。
+	now := softDeleteMarker()
+	var lastErr error
+	for attempt := 0; attempt < softDeleteRetries; attempt++ {
+		// 用 UpdateColumn 而不是 Delete：标记要由我们指定，而且不该连带改 updated_at
+		// （软删除不是一次业务更新）。
+		res := r.conn(ctx).Model(new(T)).Where("id = ?", id).
+			UpdateColumn("deleted_at", now+int64(attempt))
+		if res.Error == nil {
+			if res.RowsAffected == 0 {
+				return errs.ErrNotFound
+			}
+			return nil
+		}
+		lastErr = res.Error
+		if !isSoftDeleteMarkerConflict(lastErr) {
+			break
+		}
 	}
-	if res.Error != nil {
-		return fmt.Errorf("删除记录 id=%d: %w", id, res.Error)
-	}
-	if res.RowsAffected == 0 {
-		return errs.ErrNotFound
-	}
-	return nil
+	return fmt.Errorf("删除记录 id=%d: %w", id, lastErr)
 }
+
+// softDeleteRetries 是「标记撞唯一索引」时的尝试次数（含首次）。
+const softDeleteRetries = 3
+
+// softDeleteMarker 返回写进 deleted_at 的标记（Unix 毫秒）。
+//
+// 提成变量只为可注入：冲突那一支要求「同一毫秒内删掉两条同名记录」，用真实时钟
+// 只能碰运气复现，而它恰好是 DeleteByID 里唯一的重试路径。
+var softDeleteMarker = func() int64 { return time.Now().UnixMilli() }
 
 // isSoftDeleteMarkerConflict 判断这次失败是不是「软删除标记撞了唯一索引」。
 //

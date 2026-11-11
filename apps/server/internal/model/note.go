@@ -9,8 +9,8 @@ type Note struct {
 	// 于是「同名只能有一条未删除记录」，删掉之后同名可以重建。
 	//
 	// 边界：删除标记是 Unix 毫秒，同一毫秒内删两条同名记录会撞这个唯一索引。
-	// repository.Base.DeleteByID 会对这一种冲突换一个毫秒重试一次，所以调用方
-	// 看不到 409；复合索引仍然只需要这两列。
+	// repository.Base.DeleteByID 会对这一种冲突把标记往前推一个毫秒重试，所以
+	// 调用方看不到 409；复合索引仍然只需要这两列。
 	DeletedAt DeletedAt `gorm:"softDelete:milli;not null;default:0;uniqueIndex:uni_note_title,priority:2" json:"deleted_at,omitempty"`
 	Title     string    `gorm:"size:128;not null;uniqueIndex:uni_note_title,priority:1" json:"title"`
 	Content   string    `gorm:"type:text" json:"content"`
