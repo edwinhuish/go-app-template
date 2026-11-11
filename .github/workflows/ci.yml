@@ -25,9 +25,9 @@ jobs:
       run:
         working-directory: apps/backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: apps/backend/go.mod
           cache-dependency-path: apps/backend/go.sum
@@ -60,19 +60,23 @@ jobs:
       run:
         working-directory: apps/frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # pnpm 版本从 package.json 的 packageManager 读，
       # 不在这里写死版本号，避免和本地 / corepack 各说一套。
-      - uses: pnpm/action-setup@v4
+      #
+      # 缓存不在这里开：setup-node v5 起会按 packageManager 字段自动接管缓存，
+      # 两边同时开就是对同一个 pnpm store 抢着 restore/save。所以缓存统一交给
+      # 下面的 setup-node（cache: pnpm），这里只负责装 pnpm 本身。
+      - uses: pnpm/action-setup@v6
         with:
           package_json_file: apps/frontend/package.json
-          cache: true
-          cache_dependency_path: apps/frontend/pnpm-lock.yaml
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: apps/frontend/pnpm-lock.yaml
 
       - name: 安装依赖（严格按锁文件）
         run: pnpm install --frozen-lockfile
