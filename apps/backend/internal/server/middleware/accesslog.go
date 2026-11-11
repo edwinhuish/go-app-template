@@ -42,22 +42,26 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 			start := time.Now()
 			sw := &statusWriter{ResponseWriter: w}
 
-			next.ServeHTTP(sw, r)
+			// 用 defer 记这一行：handler panic 时它照样要出现。
+			// 写在 next.ServeHTTP 之后的话，panic 会直接跳过它，现象是「报了 panic
+			// 但访问日志里没有这次请求」，排查时容易误判成请求根本没到服务端。
+			defer func() {
+				status := sw.status
+				if status == 0 {
+					// 处理函数什么都没写：按 200 记，与 net/http 最终的隐含状态码一致。
+					status = http.StatusOK
+				}
+				log.Info("http 请求",
+					"method", r.Method,
+					"path", r.URL.Path,
+					"status", status,
+					"latency_ms", time.Since(start).Milliseconds(),
+					"ip", clientIP(r),
+					"request_id", ctxs.RequestID(r.Context()),
+				)
+			}()
 
-			status := sw.status
-			if status == 0 {
-				// 处理函数什么都没写（例如只写了响应头）：按 200 记，
-				// 与 net/http 最终的隐含状态码一致。
-				status = http.StatusOK
-			}
-			log.Info("http 请求",
-				"method", r.Method,
-				"path", r.URL.Path,
-				"status", status,
-				"latency_ms", time.Since(start).Milliseconds(),
-				"ip", clientIP(r),
-				"request_id", ctxs.RequestID(r.Context()),
-			)
+			next.ServeHTTP(sw, r)
 		})
 	}
 }

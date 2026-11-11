@@ -88,11 +88,14 @@ func New(
 	return &Server{
 		fg: fg,
 		handler: middleware.Chain(
-			// 顺序有讲究：RequestID 要在最外层，后面所有日志才带得上它；
-			// Recovery 紧随其后，panic 时才能兜住整条链路（包括 AccessLog 里的代码）。
+			// 顺序有讲究：
+			//   - RequestID 最外层，后面所有日志（含访问日志）才带得上它；
+			//   - AccessLog 在 Recovery 外面，panic 时它仍在正常的返回路径上，
+			//     访问日志不会因为一次 panic 整条消失；
+			//   - Recovery 包住业务链路，panic 时由它决定「补 500」还是「断开连接」。
 			middleware.RequestID(),
-			middleware.Recovery(log),
 			middleware.AccessLog(log),
+			middleware.Recovery(log),
 			middleware.CORS(cfg.HTTP.CORSOrigins),
 			middleware.BodyLimit(bodyLimitBytes),
 			middleware.RequestTimeout(requestTimeout),
