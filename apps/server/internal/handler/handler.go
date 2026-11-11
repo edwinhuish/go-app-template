@@ -22,6 +22,7 @@ import (
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
+	"example.com/app/internal/server/ctxs"
 )
 
 // validate 是全包唯一（也是交给 Fuego 的那一个）校验器实例。
@@ -73,7 +74,7 @@ func readBody[T any](c fuego.ContextWithBody[T]) (T, error) {
 	c.Response().Header().Del("Server-Timing")
 	if err != nil {
 		// 请求体超过 BodyLimit 时，读错误会带着「解析失败」的外观。
-		if response.HandleTooLarge(c.Response(), err) {
+		if response.HandleTooLarge(c.Response(), ctxs.RequestInfo(c.Request()), err) {
 			return zero, response.ErrResponseWritten
 		}
 		// Fuego 的校验错误是 HTTPError{Err: validator.ValidationErrors}，且实现了

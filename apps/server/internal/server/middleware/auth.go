@@ -20,13 +20,13 @@ func Auth(auth service.AuthService) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			token := extractToken(r)
 			if token == "" {
-				response.Fail(w, nil, reqInfo(r), errs.ErrUnauthorized)
+				response.Fail(w, nil, ctxs.RequestInfo(r), errs.ErrUnauthorized)
 				return
 			}
 
 			p, err := auth.Verify(r.Context(), token)
 			if err != nil {
-				response.Fail(w, nil, reqInfo(r), err)
+				response.Fail(w, nil, ctxs.RequestInfo(r), err)
 				return
 			}
 
@@ -44,24 +44,15 @@ func RequireAdmin() func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, ok := ctxs.ActorFrom(r.Context())
 			if !ok {
-				response.Fail(w, nil, reqInfo(r), errs.ErrUnauthorized)
+				response.Fail(w, nil, ctxs.RequestInfo(r), errs.ErrUnauthorized)
 				return
 			}
 			if !p.IsAdmin() {
-				response.Fail(w, nil, reqInfo(r), errs.ErrForbidden)
+				response.Fail(w, nil, ctxs.RequestInfo(r), errs.ErrForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
-	}
-}
-
-// reqInfo 汇总写失败响应时要带上的请求信息，本包几个中间件共用。
-func reqInfo(r *http.Request) response.RequestInfo {
-	return response.RequestInfo{
-		Method:    r.Method,
-		Path:      r.URL.Path,
-		RequestID: ctxs.RequestID(r.Context()),
 	}
 }
 

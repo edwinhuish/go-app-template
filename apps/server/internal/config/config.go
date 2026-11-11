@@ -308,6 +308,17 @@ func (c *Config) Validate() error {
 	if c.HTTP.ShutdownTimeout <= 0 {
 		return fmt.Errorf("http.shutdown_timeout 必须大于 0（单位秒）")
 	}
+	// 负数是笔误、0 是「用默认值」。放过去会在别处炸：负数交给 time.NewTicker
+	// 是 panic，而报错信息里根本看不出是哪个配置项引起的。
+	if c.Database.MaxLifetime < 0 {
+		return fmt.Errorf("database.max_lifetime 不能为负（0 表示取默认值）")
+	}
+	if c.Cache.Memory.SaveInterval < 0 {
+		return fmt.Errorf("cache.memory.save_interval 不能为负（0 表示取默认值）")
+	}
+	if c.Cache.Redis.DialTimeout < 0 {
+		return fmt.Errorf("cache.redis.dial_timeout 不能为负（0 表示取默认值）")
+	}
 
 	// 只认两个值：未知取值意味着下面所有生产校验都不会执行，
 	// 而「env 写错了所以生产校验没生效」是最不该靠运气的事。
@@ -327,6 +338,12 @@ func (c *Config) Validate() error {
 		if c.Cache.FallbackToMemory {
 			return fmt.Errorf("生产环境必须关闭 cache.fallback_to_memory：" +
 				"静默退回进程内缓存会让多实例之间的会话与计数立刻不一致")
+		}
+		// 空名单在 CORS 中间件里的语义是「允许任意来源」——那是开发环境的顺手，
+		// 不该成为生产的默认值。这里直接拒绝启动，而不是等某天发现任何站点都能读响应。
+		if len(c.HTTP.CORSOrigins) == 0 {
+			return fmt.Errorf("生产环境必须显式配置 http.cors_origins：" +
+				"空列表会退化成允许任意来源")
 		}
 		// 生产不允许「连库时不加密」这种事悄悄发生：本地容器默认 disable 是合理的，
 		// 但到了生产必须有人显式做这个决定，而不是继承开发环境的兜底。

@@ -63,6 +63,8 @@ app:
 http:
   addr: ":0"
   mode: release
+  cors_origins:
+    - https://app.example.com
 database:
   driver: sqlite
   dsn: %q

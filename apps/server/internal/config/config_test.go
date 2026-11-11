@@ -64,6 +64,8 @@ app:
   env: prod
 http:
   mode: release
+  cors_origins:
+    - https://app.example.com
 database:
   driver: sqlite
 cache:
@@ -96,6 +98,19 @@ jwt:
 			yaml: strings.Replace(base, "  driver: memory",
 				"  driver: memory\n  fallback_to_memory: true", 1),
 			wantErr: "fallback_to_memory",
+		},
+		{
+			// 空名单在中间件里的语义是「允许任意来源」：生产必须显式写清楚。
+			name:    "生产必须配置 CORS 白名单",
+			yaml:    strings.Replace(base, "  cors_origins:\n    - https://app.example.com\n", "", 1),
+			wantErr: "cors_origins",
+		},
+		{
+			// 负值放过去会在 time.NewTicker 里 panic，报错信息与配置项毫无关系。
+			name: "负数的落盘间隔拒绝启动",
+			yaml: strings.Replace(base, "  driver: memory",
+				"  driver: memory\n  memory:\n    save_interval: -1", 1),
+			wantErr: "save_interval",
 		},
 		{
 			name: "生产禁止种子账号",

@@ -8,6 +8,7 @@ import (
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
+	"example.com/app/internal/server/ctxs"
 )
 
 // writeTracker 只回答一个问题：响应头有没有写出去过。
@@ -66,8 +67,8 @@ func Recovery(log *slog.Logger) func(http.Handler) http.Handler {
 					panic(http.ErrAbortHandler)
 				}
 
-				response.Fail(tw, log, reqInfo(r),
-					errs.Wrap(fmt.Errorf("%v", rec), errs.CodeInternal, "服务器内部错误"))
+				response.Fail(tw, log, ctxs.RequestInfo(r),
+					errs.Wrap(fmt.Errorf("%v", rec), errs.CodeInternal, errs.ErrInternal.Msg))
 			}()
 			next.ServeHTTP(tw, r)
 		})

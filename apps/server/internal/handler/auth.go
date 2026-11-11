@@ -24,7 +24,7 @@ func NewAuthHandler(auth service.AuthService) *AuthHandler {
 // 请求体类型写在泛型参数上（ContextWithBody[dto.LoginRequest]）：文档的 requestBody
 // schema 与运行时的解码/校验用的是同一份定义（readBody → c.Body()）。
 //
-// 返回值是业务数据本身：信封、request_id 与状态码由 server 层的装饰器统一处理。
+// 返回值是业务数据本身：信封、request_id 与状态码由 server 层的序列化钩子统一处理。
 func (h *AuthHandler) Login(
 	c fuego.ContextWithBody[dto.LoginRequest],
 ) (*dto.LoginResponse, error) {

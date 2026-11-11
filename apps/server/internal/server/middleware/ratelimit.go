@@ -8,6 +8,7 @@ import (
 
 	"example.com/app/internal/pkg/errs"
 	"example.com/app/internal/pkg/response"
+	"example.com/app/internal/server/ctxs"
 )
 
 // Limiter 是限流需要的最小能力：按 key 自增并返回当前窗口内的累计次数。
@@ -48,7 +49,7 @@ func RateLimit(
 			}
 
 			if n > limit {
-				response.Fail(w, nil, reqInfo(r), errs.ErrTooManyRequests)
+				response.Fail(w, nil, ctxs.RequestInfo(r), errs.ErrTooManyRequests)
 				return
 			}
 			next.ServeHTTP(w, r)

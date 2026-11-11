@@ -129,16 +129,21 @@ func Fail(w http.ResponseWriter, log *slog.Logger, req RequestInfo, err error) {
 
 // PayloadTooLarge 写 413。
 //
-// 形状与其它失败响应不同：只有 code 与 message、没有 request_id。
-// 这是改造前就有的形状，保持一致以免前端按 request_id 是否存在分支时出错。
-func PayloadTooLarge(w http.ResponseWriter, limit int64) {
+// 形状与其它失败响应完全一致（code / message / request_id）：413 虽然不是业务错误，
+// 但它同样是「出错了，去查日志」的场景，而前端找日志只能靠 request_id。
+// 早先这里刻意不带 request_id，结果只有超限的请求在日志里对不上号。
+//
+// 业务码复用 40001（没有单独的「太大」码）：状态码本身已经把区别说清楚了，
+// 再加一个码只会让前端的 switch 多一个等价分支。
+func PayloadTooLarge(w http.ResponseWriter, req RequestInfo, limit int64) {
 	msg := "请求体过大"
 	if limit > 0 {
 		msg += "（上限 " + humanSize(limit) + "）"
 	}
 	_ = WriteJSON(w, http.StatusRequestEntityTooLarge, ErrorBody{
-		Code:    int(errs.CodeInvalidParam),
-		Message: msg,
+		Code:      int(errs.CodeInvalidParam),
+		Message:   msg,
+		RequestID: req.RequestID,
 	})
 }
 
@@ -150,12 +155,12 @@ func PayloadTooLarge(w http.ResponseWriter, limit int64) {
 //
 // 不翻的话它会在解析层变成「请求参数格式不正确」这类 400，而 400 的意思是
 // 「你的请求写错了」——实际是「太大了」，两种提示对应的动作完全不同。
-func HandleTooLarge(w http.ResponseWriter, err error) bool {
+func HandleTooLarge(w http.ResponseWriter, req RequestInfo, err error) bool {
 	var tooLarge *http.MaxBytesError
 	if !errors.As(err, &tooLarge) {
 		return false
 	}
-	PayloadTooLarge(w, tooLarge.Limit)
+	PayloadTooLarge(w, req, tooLarge.Limit)
 	return true
 }
 

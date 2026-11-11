@@ -69,6 +69,10 @@
 | `50001` | 500 | 内部错误（非业务错误统一折叠，真实原因只进日志） |
 | `50401` | 504 | 请求处理超时（ctx 截止时间到） |
 
+两条**不占码表**但必须知道的失败：请求体超限是 `413`（`code` 仍为 `40001`，形状与其它错误一致、
+带 `request_id`），单请求超时是 `504`（`50401`）。请求体上限 8MB、超时 30s，是 `router.go` 里的
+常量，不可配置——改这两个数等于改对外行为，要同步契约。
+
 分页：
 
 | 入参 | 默认 | 上限 | 说明 |
@@ -223,7 +227,7 @@ handler ──> service ──> repository ──> model
 | 项 | 默认 | 说明 |
 |---|---|---|
 | `http.addr` | `:8080` | 监听地址；消费方连的就是这个端口 |
-| `http.cors_origins` | 本地 `5173` 两个来源 | 跨域白名单，生产改域名 |
+| `http.cors_origins` | 本地 `5173` 两个来源 | 跨域白名单；**生产必须非空**，空名单的语义是允许任意来源，`Validate` 会拒绝启动 |
 | `app.seed_admin_*` | `admin` / `admin123` | 仅在 `database.seed: true` 时建号，上线前必须改 |
 | `database.auto_migrate` | `true` | 启动即同步表结构；生产建议改显式迁移 |
 | `database.driver` | `sqlite` | 也可 `postgres` / `mysql`，字段名一致 |
@@ -232,7 +236,8 @@ handler ──> service ──> repository ──> model
 | `log.level` / `log.format` | `info` / `text` | 生产建议 json |
 
 - 密码、JWT 密钥、DSN 生产一律走环境变量，不进仓库。
-- 启动期就校验（`config.Validate`）：驱动名、必填项、生产环境的密钥长度与 seed 开关。
+- 启动期就校验（`config.Validate`）：驱动名、必填项、生产环境的密钥长度、seed 开关、
+  `cors_origins` 非空，以及几个时长/间隔不能为负（负值会在 `time.NewTicker` 里 panic）。
   失败就退出，而不是等到第一个请求才 500。
 - 新增配置项要同时改：结构体字段 + 默认值 + 环境变量覆盖 + 校验 + 本节表格；只加结构体字段等于给了个零值。
 

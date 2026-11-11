@@ -180,6 +180,47 @@ func TestNoteUpdateAndOptimisticLock(t *testing.T) {
 	}
 }
 
+// TestProfileAndLogout 覆盖登录态的两条边界：profile 读自己、登出后令牌作废。
+//
+// 这两条此前没有任何用例：登出依赖服务端会话存储，删漏了的表现是「令牌在有效期内
+// 一直能用」——安全上最有感知、测试上最容易漏的那类错误。
+func TestProfileAndLogout(t *testing.T) {
+	srv := newTestServer(t)
+	token, id := login(t, srv, "admin", "admin123")
+
+	status, _, doc := call(t, srv, http.MethodGet, "/api/v1/auth/profile", "", token)
+	if status != http.StatusOK {
+		t.Fatalf("profile 状态码 = %d，期望 200（响应 %v）", status, doc)
+	}
+	me, _ := doc["data"].(map[string]any)
+	if me["id"] != id || me["username"] != "admin" {
+		t.Errorf("profile = %v，期望 id=%v / username=admin", me, id)
+	}
+	if _, ok := me["password"]; ok {
+		t.Error("profile 的响应里出现了 password 字段")
+	}
+
+	// 不带令牌一律 401，而不是回落到匿名身份。
+	status, _, doc = call(t, srv, http.MethodGet, "/api/v1/auth/profile", "", "")
+	if status != http.StatusUnauthorized || doc["code"] != float64(40101) {
+		t.Errorf("无令牌 profile = %d / code %v，期望 401 / 40101", status, doc["code"])
+	}
+
+	status, _, doc = call(t, srv, http.MethodPost, "/api/v1/auth/logout", "", token)
+	if status != http.StatusOK {
+		t.Fatalf("登出状态码 = %d，期望 200（响应 %v）", status, doc)
+	}
+	if res, _ := doc["data"].(map[string]any); res["logged_out"] != true {
+		t.Errorf("登出响应 = %v，期望 logged_out=true", doc["data"])
+	}
+
+	// 登出之后同一个令牌必须立刻失效（服务端会话已删，不是等它自然过期）。
+	status, _, doc = call(t, srv, http.MethodGet, "/api/v1/auth/profile", "", token)
+	if status != http.StatusUnauthorized || doc["code"] != float64(40101) {
+		t.Errorf("登出后再用同一令牌 = %d / code %v，期望 401 / 40101", status, doc["code"])
+	}
+}
+
 // TestPaginationLenient 验证「非法值归默认」这条对外承诺，包括非数字。
 func TestPaginationLenient(t *testing.T) {
 	srv := newTestServer(t)
@@ -426,6 +467,11 @@ func TestOversizedBodyIs413(t *testing.T) {
 	msg, _ := doc["message"].(string)
 	if !strings.Contains(msg, "请求体过大") {
 		t.Errorf("413 的 message = %q，期望包含「请求体过大」", msg)
+	}
+	// 413 与其它失败响应同形：带 request_id。少了它，超限请求在日志里对不上号——
+	// 而「查不到这一条」恰好是排查超限时最需要的东西。
+	if id, _ := doc["request_id"].(string); id == "" {
+		t.Errorf("413 的响应缺少 request_id：%v", doc)
 	}
 }
 

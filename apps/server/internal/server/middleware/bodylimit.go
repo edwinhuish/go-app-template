@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"example.com/app/internal/pkg/response"
+	"example.com/app/internal/server/ctxs"
 )
 
 // BodyLimit 给请求体设一个上限，超了直接 413。
@@ -20,7 +21,7 @@ func BodyLimit(maxBytes int64) func(http.Handler) http.Handler {
 			if r.Body != nil {
 				// 提前用 Content-Length 拒一次：能省掉把数据读进来再丢掉。
 				if r.ContentLength > maxBytes {
-					response.PayloadTooLarge(w, maxBytes)
+					response.PayloadTooLarge(w, ctxs.RequestInfo(r), maxBytes)
 					return
 				}
 				r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
