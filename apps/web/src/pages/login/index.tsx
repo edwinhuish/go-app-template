@@ -78,7 +78,7 @@ export function LoginPage() {
         </Form>
 
         <Typography.Paragraph type="secondary" style={{ margin: '16px 0 0', fontSize: 12 }}>
-          开发环境默认账号 admin / admin123，见 apps/backend/configs/config.yaml。
+          开发环境默认账号 admin / admin123，见 apps/server/configs/config.yaml。
         </Typography.Paragraph>
       </Card>
     </div>

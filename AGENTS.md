@@ -10,8 +10,8 @@
 
 | 文档 | 回答什么问题 | 维护者 |
 |---|---|---|
-| [`apps/backend/AGENTS.md`](apps/backend/AGENTS.md) | 后端改动落在哪一层、硬性约束、新增模块清单、存储与配置约定；**自带对外接口摘要，不依赖本表任何其它文件** | 改后端的人 |
-| [`apps/frontend/AGENTS.md`](apps/frontend/AGENTS.md) | 前端目录与依赖方向、取数与错误处理、组件与命名、新增页面清单；**自带要消费的接口摘要，不依赖本表任何其它文件** | 改前端的人 |
+| [`apps/server/AGENTS.md`](apps/server/AGENTS.md) | 后端改动落在哪一层、硬性约束、新增模块清单、存储与配置约定；**自带对外接口摘要，不依赖本表任何其它文件** | 改后端的人 |
+| [`apps/web/AGENTS.md`](apps/web/AGENTS.md) | 前端目录与依赖方向、取数与错误处理、组件与命名、新增页面清单；**自带要消费的接口摘要，不依赖本表任何其它文件** | 改前端的人 |
 | [`docs/contracts/api.md`](docs/contracts/api.md) | 两端共用的接口协议：响应体、错误码、分页、鉴权头、字段与时序 | 契约变更的发起人 |
 | [`docs/architecture.md`](docs/architecture.md) | 跨端全景、目录树、一次请求从前端到后端的链路、文档地图 | 架构调整时 |
 | [`docs/TODO.md`](docs/TODO.md) | 还没做的整改项（代码与文档），按优先级排序，每条带验收 | 每修一项就改一次 |
@@ -31,11 +31,11 @@
 
 - **根目录不新增规范文档**。想加 `BACKEND.md`、`FRONTEND.md`、`STYLE.md`、`CONVENTIONS.md`
   一概改到 `apps/<端>/` 下，或合并进已有的端级 `AGENTS.md`。
-- **端内规则只有一个正本**：后端规则只写在 `apps/backend/AGENTS.md`，前端规则只写在
-  `apps/frontend/AGENTS.md`。
+- **端内规则只有一个正本**：后端规则只写在 `apps/server/AGENTS.md`，前端规则只写在
+  `apps/web/AGENTS.md`。
 - **端级文档必须自包含**：`apps/<端>/AGENTS.md`（以及该端 `docs/` 下的任何文件）里不得出现
   指向本端目录之外文档的链接 —— `../../docs/contracts/api.md`、`../../README.md`、
-  `../backend/AGENTS.md`、`../../AGENTS.md` 都算越界。需要的跨项目信息（接口形状、任务名契约）
+  `../server/AGENTS.md`、`../../AGENTS.md` 都算越界。需要的跨项目信息（接口形状、任务名契约）
   在该文件里**直接写清**，不能写「见某某文档」。
 
 ## 3. apps 子项目必须自治
@@ -53,15 +53,15 @@ apps/<端>   ──✗──>  apps 下的其他子项目
 
 - **允许**：框架 → apps。根 `Taskfile.yml` 的 `includes` 把 `<子项目>:<命令>` 命名的任务
   直接交给 `apps/<子项目>/Taskfile.yml`；根目录的 8 个全局命令由 `scripts/task-entry.sh`
-  派发到 `apps/*/Taskfile.yml` 的同名任务；`scripts/release.sh` 写 `apps/frontend/package.json`
+  派发到 `apps/*/Taskfile.yml` 的同名任务；`scripts/release.sh` 写 `apps/web/package.json`
   的版本号；框架的文档（本文件、`docs/`、`README.md`）链接到 `apps/` 内的文件。
 - **禁止**：apps → 框架，以及 apps A → apps B。跨端只能通过
   [`docs/contracts/api.md`](docs/contracts/api.md) 这条契约见面 —— HTTP 是边界，不是 import。
 
 | 禁止 | 长什么样 |
 |---|---|
-| import 另一个子项目的代码 | 前端 `import '../backend/...'`、后端 import 前端导出的类型 |
-| 读另一个子项目的文件或配置 | 后端读 `../frontend/package.json`；前端读后端 `configs/*.yaml` |
+| import 另一个子项目的代码 | 前端 `import '../server/...'`、后端 import 前端导出的类型 |
+| 读另一个子项目的文件或配置 | 后端读 `../web/package.json`；前端读后端 `configs/*.yaml` |
 | 复用框架层的代码或模块 | 子项目 import 根目录 `scripts/` 里的实现来生成代码 |
 | 缺了框架就跑不起来 | 构建前必须先 `cd` 到仓库根；依赖根 `Taskfile.yml` 的变量才不报错 |
 | 相对路径逃出本目录 | 子项目的源码、配置、Taskfile 里出现 `../../` |
@@ -73,7 +73,7 @@ apps/<端>   ──✗──>  apps 下的其他子项目
 
 | 位置 | 读什么 | 缺失时的行为 | 为什么允许 |
 |---|---|---|---|
-| `apps/backend/Taskfile.yml` | `../../VERSION` | 退化 `dev`，构建照常 | 版本号正本是仓库根的 `VERSION`；它只当缺省值，不参与编译逻辑 |
+| `apps/server/Taskfile.yml` | `../../VERSION` | 退化 `dev`，构建照常 | 版本号正本是仓库根的 `VERSION`；它只当缺省值，不参与编译逻辑 |
 
 自检（在仓库根执行）：
 
@@ -92,11 +92,11 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
 
 | 你改了 | 必读 |
 |---|---|
-| `apps/backend/**` | `apps/backend/AGENTS.md` |
-| `apps/frontend/**` | `apps/frontend/AGENTS.md` |
-| `apps/backend/internal/dto`、`apps/backend/internal/pkg/errs`、`apps/backend/internal/pkg/response`、`apps/frontend/src/types`、`apps/frontend/src/api` | 上表对应的一份 **+** `docs/contracts/api.md` |
+| `apps/server/**` | `apps/server/AGENTS.md` |
+| `apps/web/**` | `apps/web/AGENTS.md` |
+| `apps/server/internal/dto`、`apps/server/internal/pkg/errs`、`apps/server/internal/pkg/response`、`apps/web/src/types`、`apps/web/src/api` | 上表对应的一份 **+** `docs/contracts/api.md` |
 | `apps/*/Taskfile.yml`、根 `Taskfile.yml`、`scripts/`、`.github/workflows/` | `README.md` 的命令表、参数规则与发版一节；改完四处（根 Taskfile 含 `includes`、端 Taskfile、README、CI）对齐，并确认没引入 apps → 框架的依赖（第 3 节） |
-| 整端替换（换掉 `apps/backend` 或 `apps/frontend`） | `README.md` 的「替换前端 / 替换后端」+ 第 3 节 + 那一端的 `AGENTS.md`（规范要改成新工程的形状） |
+| 整端替换（换掉 `apps/server` 或 `apps/web`） | `README.md` 的「替换前端 / 替换后端」+ 第 3 节 + 那一端的 `AGENTS.md`（规范要改成新工程的形状） |
 | `docs/**` | 本文第 5 节的一致性规则 |
 
 ## 5. 公共约定怎么保持一致
@@ -109,8 +109,8 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
 | 位置 | 角色 |
 |---|---|
 | [`docs/contracts/api.md`](docs/contracts/api.md) | 正本：评审、对照、对外解释都以它为准 |
-| `apps/backend/AGENTS.md` 第 1 节 | 后端自己那份「本服务要实现什么」 |
-| `apps/frontend/AGENTS.md` 第 2 节 | 前端自己那份「本工程要消费什么」 |
+| `apps/server/AGENTS.md` 第 1 节 | 后端自己那份「本服务要实现什么」 |
+| `apps/web/AGENTS.md` 第 2 节 | 前端自己那份「本工程要消费什么」 |
 
 1. **摘要只保必要字段**：端级文档写端点、响应体形状、码表、分页、鉴权头即可，不搬实现细节、
    不抄整份契约。语义必须与正本一致；冲突时以正本为准，并当次修掉端级那一句。
@@ -138,7 +138,7 @@ grep -rn --exclude-dir=node_modules '](\.\./' apps/
 - **可以整端换掉**：每一端都能被另一个同语言工程整体替换，换个目录 + 改几处接线即可，
   步骤与配置项见 [`README.md`](README.md)「替换前端 / 替换后端」。替换时不允许顺手把
   另一端或框架改造成彼此耦合 —— 那会直接违反第 3 节。
-- **各自自检**：后端 `task -d apps/backend test`、前端 `task -d apps/frontend lint`；
+- **各自自检**：后端 `task -d apps/server test`、前端 `task -d apps/web lint`；
   根目录 `task fmt / lint / test / build` 只是编排入口，不新增命令。
 - **删示例别删规范**：`README.md` 的占位替换清单里删 `Note` 示例模块时，
   两份 `AGENTS.md` 里的示例引用只是「样板」，不必跟着删，除非该约定本身失效。

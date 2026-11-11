@@ -5,9 +5,9 @@ version: '3'
 #   1. 单个端：task <子项目>:<命令> [-- 参数...]
 #        Task 原生 includes：任务名里带命名空间，参数直接进那一端的任务，
 #        根目录一行脚本都不参与，因此没有任何解析与改写。
-#          task backend:build
-#          task backend:dev -- --db=pg --once
-#          task backend:test -- -run TestLogin      # 位置参数也能传
+#          task server:build
+#          task server:dev -- --db=pg --once
+#          task server:test -- -run TestLogin      # 位置参数也能传
 #
 #   2. 所有端：task <命令> [-- 参数...]
 #        根目录的 8 个统一命令：逐个跑 apps/ 下每个子项目的同名任务（没定义就跳过），
@@ -23,12 +23,12 @@ version: '3'
 #
 # includes 必须静态列出（Task 不支持通配符包含）：新增一个子项目 = 在这张表里加 4 行。
 includes:
-  backend:
-    taskfile: ./apps/backend/Taskfile.yml
-    dir: ./apps/backend
-  frontend:
-    taskfile: ./apps/frontend/Taskfile.yml
-    dir: ./apps/frontend
+  server:
+    taskfile: ./apps/server/Taskfile.yml
+    dir: ./apps/server
+  web:
+    taskfile: ./apps/web/Taskfile.yml
+    dir: ./apps/web
 
 # 全局命令的参数写在 `--` 之后（Task 自己的参数解析不接受裸 --ci / --db=pg），
 # 由根 Taskfile 放进 TASK_ARGS 环境变量交给 scripts/task-entry.sh。
@@ -83,7 +83,7 @@ tasks:
   dev:
     # interactive：开发进程要直连终端，否则 Ctrl-C 与热重载的输出都不对。
     # 逐个起：第一个端是长驻进程，它会一直占着终端，后面的端不会被执行。
-    # 多端同时开发请各开一个终端跑 `task backend:dev` / `task frontend:dev`。
+    # 多端同时开发请各开一个终端跑 `task server:dev` / `task web:dev`。
     desc: 逐个启动所有子项目的开发环境（第一个长驻端会占住终端；多端用 task <端>:dev）
     silent: true
     interactive: true

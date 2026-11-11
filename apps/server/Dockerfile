@@ -1,7 +1,7 @@
 # 后端镜像（多阶段构建）。
 #
-# 构建上下文是 apps/backend：
-#   docker build -t app-server ./apps/backend
+# 构建上下文是 apps/server：
+#   docker build -t app-server ./apps/server
 # 基础镜像版本跟随 go.mod 的 go 指令，避免构建时临时下载新版工具链。
 FROM golang:1.26-alpine AS builder
 
@@ -12,7 +12,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-# 版本号在构建期注入，与 task backend:build 注的是同一批变量。
+# 版本号在构建期注入，与 task server:build 注的是同一批变量。
 # 构建上下文是本目录（拿不到仓库根目录的 VERSION），所以缺省落到 dev；
 # 发布流水线传 tag 名，本地要打准版本就 --build-arg VERSION=...
 ARG VERSION=dev

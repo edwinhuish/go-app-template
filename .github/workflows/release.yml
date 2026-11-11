@@ -25,10 +25,10 @@ on:
         default: ''
 
 env:
-  # 与 apps/backend/Taskfile.yml 的 APP_NAME 保持一致：产物名、镜像里的二进制名都来自它。
+  # 与 apps/server/Taskfile.yml 的 APP_NAME 保持一致：产物名、镜像里的二进制名都来自它。
   APP_NAME: app-server
-  # 前端包名（apps/frontend/package.json 的 name），前端产物按它命名。
-  FRONTEND_NAME: app-frontend
+  # 前端包名（apps/web/package.json 的 name），前端产物按它命名。
+  WEB_NAME: app-web
   # CGO_ENABLED=0：静态链接，产物能直接在 Alpine 等 musl 系统上跑。
   CGO_ENABLED: '0'
   # -s -w：去掉符号表与调试信息，体积小一半；版本号等由下面各 job 用 -X 注入。
@@ -88,15 +88,15 @@ jobs:
         uses: actions/setup-go@v7
         with:
           # 版本跟 go.mod 的 go 指令走，不在 YAML 里另写一个数字。
-          go-version-file: apps/backend/go.mod
-          cache-dependency-path: apps/backend/go.sum
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
 
       - name: 下载依赖
-        working-directory: apps/backend
+        working-directory: apps/server
         run: go mod download
 
       - name: 编译
-        working-directory: apps/backend
+        working-directory: apps/server
         env:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
@@ -107,7 +107,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/dist"
           out="$GITHUB_WORKSPACE/dist/${APP_NAME}_${TARGET_OS}_${{ matrix.suffix }}${{ matrix.ext }}"
-          # 版本号走链接参数注入（与 apps/backend/Taskfile.yml 注的是同一批变量），
+          # 版本号走链接参数注入（与 apps/server/Taskfile.yml 注的是同一批变量），
           # 产物因此能在任何目录用 -version 自证，不依赖旁边的 VERSION 文件。
           CGO_ENABLED="$CGO_ENABLED" GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
             go build -trimpath \
@@ -122,8 +122,8 @@ jobs:
           path: dist/${{ env.APP_NAME }}_${{ matrix.os }}_${{ matrix.suffix }}${{ matrix.ext }}
           retention-days: 7
 
-  frontend:
-    name: Build frontend bundle
+  web:
+    name: Build web bundle
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
@@ -134,41 +134,41 @@ jobs:
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6
         with:
-          package_json_file: apps/frontend/package.json
+          package_json_file: apps/web/package.json
 
       - name: 安装 Node
         uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'pnpm'
-          cache-dependency-path: apps/frontend/pnpm-lock.yaml
+          cache-dependency-path: apps/web/pnpm-lock.yaml
 
       - name: 安装依赖（严格按锁文件）
-        working-directory: apps/frontend
+        working-directory: apps/web
         run: pnpm install --frozen-lockfile
 
       - name: 构建
-        working-directory: apps/frontend
+        working-directory: apps/web
         run: pnpm run build
 
       - name: 打包静态产物
-        working-directory: apps/frontend
+        working-directory: apps/web
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          # 解压即用：压缩包里只有 dist/ 的内容，不带 apps/frontend 这一层路径。
-          tar -czf "$GITHUB_WORKSPACE/dist/${FRONTEND_NAME}-dist.tar.gz" -C dist .
+          # 解压即用：压缩包里只有 dist/ 的内容，不带 apps/web 这一层路径。
+          tar -czf "$GITHUB_WORKSPACE/dist/${WEB_NAME}-dist.tar.gz" -C dist .
 
       - name: 上传产物
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-dist
-          path: dist/${{ env.FRONTEND_NAME }}-dist.tar.gz
+          name: web-dist
+          path: dist/${{ env.WEB_NAME }}-dist.tar.gz
           retention-days: 7
 
   release:
     name: Create Release
-    needs: [build, frontend]
+    needs: [build, web]
     runs-on: ubuntu-latest
     # 只有 tag 推送或手动触发才发 Release；分支推送不该产生版本。
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
@@ -277,9 +277,9 @@ jobs:
       - name: 构建并推送多架构镜像
         uses: docker/build-push-action@v7
         with:
-          # 构建上下文是 apps/backend：Dockerfile 拷的是这一端的 go.mod 与 configs。
-          context: ./apps/backend
-          file: ./apps/backend/Dockerfile
+          # 构建上下文是 apps/server：Dockerfile 拷的是这一端的 go.mod 与 configs。
+          context: ./apps/server
+          file: ./apps/server/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}

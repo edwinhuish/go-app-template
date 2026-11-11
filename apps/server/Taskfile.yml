@@ -1,9 +1,9 @@
 version: '3'
 
 # 后端任务。命令只在这里维护一份：仓库根的统一入口按任务名调用本文件
-# （`task -d apps/backend <任务>`），本地也可以直接在本目录跑 `task <任务>`。
+# （`task -d apps/server <任务>`），本地也可以直接在本目录跑 `task <任务>`。
 #
-# 工作目录就是 apps/backend，因此 go.mod、.air.toml、configs/ 的路径都相对于本目录。
+# 工作目录就是 apps/server，因此 go.mod、.air.toml、configs/ 的路径都相对于本目录。
 # 带开关的任务要把开关放在 `--` 之后（Task 自己的参数解析不接受裸 --xxx）：
 #   task dev -- --db=pg --once
 
@@ -30,7 +30,7 @@ vars:
 tasks:
   # 不带任务名时落到这里，等价于 `task help`。
   # 刻意不写 desc：description 是 --list 的筛选条件，写了它就会在**仓库根**的命令清单里
-  # 多出 `backend:default` 与别名 `backend` 两行（`default` 是 Task 的内置名字，
+  # 多出 `server:default` 与别名 `server` 两行（`default` 是 Task 的内置名字，
   # 不是这一端对外提供的命令）。
   default:
     silent: true

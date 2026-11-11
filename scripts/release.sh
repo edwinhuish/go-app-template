@@ -22,7 +22,7 @@ PUSH="${PUSH:-ask}"
 DRY_RUN="${DRY_RUN:-false}"
 
 VERSION_FILE="$ROOT/VERSION"
-PKG_FILE="$ROOT/apps/frontend/package.json"
+PKG_FILE="$ROOT/apps/web/package.json"
 
 die() {
   printf '✗ %s\n' "$1" >&2
@@ -99,7 +99,7 @@ printf '%s\n' "$VERSION" >"$VERSION_FILE"
 if [ -f "$PKG_FILE" ]; then
   sed -i.bak -E "s/(\"version\"[[:space:]]*:[[:space:]]*\")[^\"]*(\")/\1$VERSION\2/" "$PKG_FILE"
   rm -f "$PKG_FILE.bak"
-  info "已同步 apps/frontend/package.json"
+  info "已同步 apps/web/package.json"
 fi
 
 # ---- 提交 + tag ----

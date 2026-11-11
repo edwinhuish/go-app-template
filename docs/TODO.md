@@ -52,10 +52,10 @@
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 13 | `README.md:391` | 环境变量表在 `apps/backend/AGENTS.md` 第 6 节（配置与密钥），不是第 5 节（数据与存储） | 引用改为第 6 节，并核对同段其余节号 |
-| 14 | `README.md:341-342` vs `README.md:186` vs `apps/frontend/AGENTS.md:17` | 三处对 `fmt` 的说法打架：替换清单说 `fmt` 参与「`task lint` 的格式化步骤」，命令表说 lint「不顺手做」格式化，前端规范说本端没有 `fmt` 任务 | 统一成「lint 只检查、fmt 单独跑」，三处措辞一致 |
-| 15 | `docs/contracts/api.md:56`、`apps/backend/AGENTS.md:60`、`apps/frontend/AGENTS.md:69` | 三处码表都没有 413，而 `internal/server/router.go:330` 已按 413 写了文案。二选一：补 `413`（`40001`）行，或说明「413 复用 40001、状态码由中间件直接给出」 | 三处码表行数仍相等（`grep -c '^| \`[0-9]'`）；413 的说明与代码一致 |
-| 16 | `apps/frontend/AGENTS.md:53` | 「不带令牌的接口只有登录」不准确：`/healthz` 同样不需要令牌，而且它没出现在任何文档里 | 补一句健康检查接口（路径、无鉴权、不进 `/api/v1`），或明确它不属于对外契约 |
+| 13 | `README.md:391` | 环境变量表在 `apps/server/AGENTS.md` 第 6 节（配置与密钥），不是第 5 节（数据与存储） | 引用改为第 6 节，并核对同段其余节号 |
+| 14 | `README.md:341-342` vs `README.md:186` vs `apps/web/AGENTS.md:17` | 三处对 `fmt` 的说法打架：替换清单说 `fmt` 参与「`task lint` 的格式化步骤」，命令表说 lint「不顺手做」格式化，前端规范说本端没有 `fmt` 任务 | 统一成「lint 只检查、fmt 单独跑」，三处措辞一致 |
+| 15 | `docs/contracts/api.md:56`、`apps/server/AGENTS.md:60`、`apps/web/AGENTS.md:69` | 三处码表都没有 413，而 `internal/server/router.go:330` 已按 413 写了文案。二选一：补 `413`（`40001`）行，或说明「413 复用 40001、状态码由中间件直接给出」 | 三处码表行数仍相等（`grep -c '^| \`[0-9]'`）；413 的说明与代码一致 |
+| 16 | `apps/web/AGENTS.md:53` | 「不带令牌的接口只有登录」不准确：`/healthz` 同样不需要令牌，而且它没出现在任何文档里 | 补一句健康检查接口（路径、无鉴权、不进 `/api/v1`），或明确它不属于对外契约 |
 | 17 | `AGENTS.md:22-28`（落点表） | 文档分类里没有「工作清单」这一类，新增 `docs/TODO.md` 后分类不完整 | 已在本轮登记（本文档类型 + 三处地图），后续新增同类文件按同一行登记 |
 
 ## 3. P2
@@ -79,17 +79,17 @@
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 28 | `README.md:73` vs `apps/backend/AGENTS.md:259-260` | 「推倒重来」的清理口径不一致：README 只删 `data/app.db*`，后端规范还要求删 `data/cache.snapshot` | 两处命令一致；保留快照会留下旧登录态与限流计数，要写明 |
+| 28 | `README.md:73` vs `apps/server/AGENTS.md:259-260` | 「推倒重来」的清理口径不一致：README 只删 `data/app.db*`，后端规范还要求删 `data/cache.snapshot` | 两处命令一致；保留快照会留下旧登录态与限流计数，要写明 |
 | 29 | `docs/architecture.md:100-107` | 该节声明「分层与目录职责只写在各自正本里，本文件不复述」，但 §4 步骤 5 复述了实现细节并已漂移（见 P0-4）。要么删掉步骤 5 的细节，要么把它降低为「回程由统一序列化器写出」一句话 | §4 不再出现随代码变的具体类型名 |
 | 30 | `README.md:255` | `-version` 示例输出写 `go1.27.3`，前置表写 Go ≥ 1.26，读者会以为版本要求不一致 | 示例与前置表对齐，或标注「示例输出」 |
-| 31 | `apps/backend/AGENTS.md:217`（配置表）、`docs/contracts/api.md:22-29`（传输层表） | 请求体上限（8MB）与单请求超时（30s）是 `router.go:40,44` 的常量，既不可配也没登记；413 与 504 的行为都依赖它们 | 在配置表或契约里写明这两个值，或改成配置项 |
+| 31 | `apps/server/AGENTS.md:217`（配置表）、`docs/contracts/api.md:22-29`（传输层表） | 请求体上限（8MB）与单请求超时（30s）是 `router.go:40,44` 的常量，既不可配也没登记；413 与 504 的行为都依赖它们 | 在配置表或契约里写明这两个值，或改成配置项 |
 
 ## 4. 工具与流程
 
 | # | 位置 | 要做的事 | 验收 |
 |---|---|---|---|
-| 32 | `apps/backend/Taskfile.yml:160`、`.github/workflows/ci.yml:55` | 测试加 `-race`；内存缓存与中间件都有并发路径，现在只跑串行单测 | 本地与 CI 都跑 `go test -race ./...`，不新增失败 |
-| 33 | `apps/backend/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数（本清单第 18 条就是它漏掉的） | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
+| 32 | `apps/server/Taskfile.yml:160`、`.github/workflows/ci.yml:55` | 测试加 `-race`；内存缓存与中间件都有并发路径，现在只跑串行单测 | 本地与 CI 都跑 `go test -race ./...`，不新增失败 |
+| 33 | `apps/server/Taskfile.yml:165` | `lint` 只有 `go vet`，查不出未使用的包级函数（本清单第 18 条就是它漏掉的） | 接入 staticcheck 或 golangci-lint，把 `U1000` 级别的问题纳管 |
 | 34 | `AGENTS.md:78-92`（第 3 节自检）、`docs/contracts/api.md:142-143` | 两条文档自检（码表行数、`apps/` 内不得外链）目前靠人手跑，改成 CI 的一步 | CI 里直接执行那两条 grep，失败即红 |
 
 ## 5. 已完成

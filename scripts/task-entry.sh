@@ -2,8 +2,8 @@
 #
 # 根目录「所有端」入口的实现：把一条命令派发到 apps/ 下每个子项目的同名任务。
 #
-# 「单个端」不走这里：`task backend:build` 由根 Taskfile 的 includes 直接把任务名和参数
-# 交给 apps/backend/Taskfile.yml，根目录没有任何代码参与，也就没有解析与改写。
+# 「单个端」不走这里：`task server:build` 由根 Taskfile 的 includes 直接把任务名和参数
+# 交给 apps/server/Taskfile.yml，根目录没有任何代码参与，也就没有解析与改写。
 # 本脚本只负责**全量**派发（task build / task dev …）和框架级的 release。
 #
 # 用法：
@@ -19,7 +19,7 @@
 # 它有自己的取值（第一个裸词 = 版本号，另有 --remote= / --push= / --dry-run），见那个分支。
 #
 # 命名的两种形状（app 名进任务名，不进位置参数）：
-#   task backend:build                  # 单个端：includes 直达，参数零解析
+#   task server:build                  # 单个端：includes 直达，参数零解析
 #   task build                          # 所有端：本脚本派发
 #
 # 命令：
@@ -85,8 +85,8 @@ pick_task() {
 # 唯一的派发逻辑：遍历 apps/ 下的子项目，跑同名任务，把同一份参数原样转给每一个。
 #
 # 除 release 之外的 7 个命令在实现上没有任何区别：不区分执行模式、不认命令名的特殊含义、
-# 不做串联步骤。想只跑一端就点名（`task backend:build`），想要多端同时活着就各开一个终端
-# （`task backend:dev` / `task frontend:dev`）——这些都由任务名表达，不由脚本猜。
+# 不做串联步骤。想只跑一端就点名（`task server:build`），想要多端同时活着就各开一个终端
+# （`task server:dev` / `task web:dev`）——这些都由任务名表达，不由脚本猜。
 #
 # 用法：run <任务名> [参数...]
 # 任务名之后的所有参数原样转给子项目的同名任务，不检查、不改写：
@@ -123,7 +123,7 @@ run() {
   done
 }
 
-# release 是框架级的动作（没有 backend:release 这回事），它自己吃掉两类参数：
+# release 是框架级的动作（没有 server:release 这回事），它自己吃掉两类参数：
 #   1. 版本号：第一个裸词就是版本号（`task release -- 1.2.3`），也接受 --version=1.2.3；
 #   2. 其余取值：--remote=origin / --push=false / --dry-run，值里可能带 . 和 -，
 #      所以带值的写成 --key=value，不给位置参数留第二种解释。
@@ -198,7 +198,7 @@ if [ "${1:-}" = "--" ]; then
   shift
 fi
 
-# 这里**不再**从位置参数里认子项目名：点名某个端靠任务名（`task backend:build`），
+# 这里**不再**从位置参数里认子项目名：点名某个端靠任务名（`task server:build`），
 # 由根 Taskfile 的 includes 直接交给那一端。位置参数里的一切都是业务参数，原样往下传。
 
 case "$COMMAND" in

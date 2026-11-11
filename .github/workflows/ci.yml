@@ -4,7 +4,7 @@
 # 锁文件和 package.json 对不上时 CI 直接红，而不是悄悄解析出新版本。
 #
 # 首次使用模板时仓库里还没有锁文件，先本地跑一次 task install 生成并提交它，
-# 否则 frontend 这一组会在安装步骤失败（这是有意的，不是配置问题）。
+# 否则 web 这一组会在安装步骤失败（这是有意的，不是配置问题）。
 
 name: CI
 
@@ -19,18 +19,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
+  server:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/backend
+        working-directory: apps/server
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-go@v7
         with:
-          go-version-file: apps/backend/go.mod
-          cache-dependency-path: apps/backend/go.sum
+          go-version-file: apps/server/go.mod
+          cache-dependency-path: apps/server/go.sum
 
       - name: 下载依赖
         run: go mod download
@@ -54,11 +54,11 @@ jobs:
       - name: 单元测试
         run: go test ./... -count=1
 
-  frontend:
+  web:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/frontend
+        working-directory: apps/web
     steps:
       - uses: actions/checkout@v7
 
@@ -70,13 +70,13 @@ jobs:
       # 下面的 setup-node（cache: pnpm），这里只负责装 pnpm 本身。
       - uses: pnpm/action-setup@v6
         with:
-          package_json_file: apps/frontend/package.json
+          package_json_file: apps/web/package.json
 
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'pnpm'
-          cache-dependency-path: apps/frontend/pnpm-lock.yaml
+          cache-dependency-path: apps/web/pnpm-lock.yaml
 
       - name: 安装依赖（严格按锁文件）
         run: pnpm install --frozen-lockfile

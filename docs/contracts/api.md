@@ -7,11 +7,11 @@
 （不得外链到本文件，详见 [`../../AGENTS.md`](../../AGENTS.md) 第 2 节）。所以这类信息一共三处：
 
 - `docs/contracts/api.md`（本文件，正本）
-- `apps/backend/AGENTS.md`（后端要实现的那份）
-- `apps/frontend/AGENTS.md`（前端要消费的那份）
+- `apps/server/AGENTS.md`（后端要实现的那份）
+- `apps/web/AGENTS.md`（前端要消费的那份）
 
-- 后端规范：[`../../apps/backend/AGENTS.md`](../../apps/backend/AGENTS.md)
-- 前端规范：[`../../apps/frontend/AGENTS.md`](../../apps/frontend/AGENTS.md)
+- 后端规范：[`../../apps/server/AGENTS.md`](../../apps/server/AGENTS.md)
+- 前端规范：[`../../apps/web/AGENTS.md`](../../apps/web/AGENTS.md)
 - 跨端全景与文档地图：[`../architecture.md`](../architecture.md)
 
 改契约的流程见文末「变更流程」。三处冲突时**以本文件为准**，并视为文档 bug：
@@ -123,11 +123,11 @@
 
 | 契约要素 | 后端 | 前端 |
 |---|---|---|
-| 响应体形状、状态码折叠 | 成功：`apps/backend/internal/server/envelope.go`（序列化钩子）；失败：`apps/backend/internal/pkg/response/response.go` | `apps/frontend/src/api/client.ts` |
-| 业务码表 | `apps/backend/internal/pkg/errs/errs.go` | `apps/frontend/src/api/client.ts`（`ApiError.code`） |
-| 分页参数与形状 | `apps/backend/internal/dto/common.go` | `src/types/index.ts` + `src/constants/index.ts` |
-| 接口前缀、令牌键 | `apps/backend/internal/server/router.go` | `src/constants/index.ts` |
-| 鉴权头 | `apps/backend/internal/server/middleware/auth.go` | `apps/frontend/src/api/client.ts` |
+| 响应体形状、状态码折叠 | 成功：`apps/server/internal/server/envelope.go`（序列化钩子）；失败：`apps/server/internal/pkg/response/response.go` | `apps/web/src/api/client.ts` |
+| 业务码表 | `apps/server/internal/pkg/errs/errs.go` | `apps/web/src/api/client.ts`（`ApiError.code`） |
+| 分页参数与形状 | `apps/server/internal/dto/common.go` | `src/types/index.ts` + `src/constants/index.ts` |
+| 接口前缀、令牌键 | `apps/server/internal/server/router.go` | `src/constants/index.ts` |
+| 鉴权头 | `apps/server/internal/server/middleware/auth.go` | `apps/web/src/api/client.ts` |
 
 ## 7. 变更流程
 
@@ -137,7 +137,7 @@
 2. **再改后端**：`dto` / `errs` / `response`；`internal/dto` 或 `internal/pkg/errs` 的改动
    一律视为契约变更，走本节流程。
 3. **同一个提交里改前端**：`src/types/index.ts` 与对应 `src/api/xxx.ts`。
-4. **同步两端规范里的摘要**：`apps/backend/AGENTS.md` 第 1 节、`apps/frontend/AGENTS.md` 第 2 节。
+4. **同步两端规范里的摘要**：`apps/server/AGENTS.md` 第 1 节、`apps/web/AGENTS.md` 第 2 节。
    摘要与外链无关，是各自文件里的内联副本，**必须手动跟上**——没有测试抓得到它。
 5. **自检**：`task lint`（`go vet` + 前端 `tsc`）。`types` 与 `dto` 对不上会在这里暴露；
    码表行数快速核对：`grep -c '^| `[0-9]' docs/contracts/api.md apps/*/AGENTS.md`，三个数字应当相等。
